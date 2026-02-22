@@ -88,11 +88,25 @@ def clone(config: str | None, output: str, resume: bool):
 
 
 @main.command()
+@click.option("--csv", required=True, type=click.Path(exists=True), help="Path to submissions CSV.")
+@click.option("--config", default=None, type=click.Path(exists=True), help="Path to config YAML.")
+@click.option("--output", default="./output", help="Output directory.")
+@click.option("--resume/--no-resume", default=True, help="Skip already-downloaded videos.")
+def download(csv: str, config: str | None, output: str, resume: bool):
+    """Download all demo videos."""
+    cfg = _build_config(csv, config, output)
+    from hackathon_reviewer.stages.parse import load_submissions
+    from hackathon_reviewer.stages.video import run_video_download
+    submissions = load_submissions(cfg)
+    run_video_download(cfg, submissions, resume=resume)
+
+
+@main.command()
 @click.option("--config", default=None, type=click.Path(exists=True), help="Path to config YAML.")
 @click.option("--output", default="./output", help="Output directory.")
 @click.option("--resume/--no-resume", default=True, help="Skip already-completed work.")
 def analyze(config: str | None, output: str, resume: bool):
-    """Run code review and video analysis."""
+    """Run code review and video analysis (requires parse, clone, download first)."""
     cfg = _build_config(None, config, output)
     from hackathon_reviewer.stages.parse import load_submissions
     from hackathon_reviewer.stages.clone import load_repo_metadata

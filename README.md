@@ -34,17 +34,18 @@ hackathon-reviewer run --csv submissions.csv --config config.yaml --output ./out
 ## CLI commands
 
 ```bash
-# Full pipeline
+# Full pipeline (recommended)
 hackathon-reviewer run --csv FILE --output DIR [--config FILE] [--resume]
 
 # Individual stages (useful for re-running specific steps)
-hackathon-reviewer parse   --csv FILE --output DIR [--config FILE]
-hackathon-reviewer clone   --output DIR [--config FILE]
-hackathon-reviewer analyze --output DIR [--config FILE]
-hackathon-reviewer report  --output DIR [--config FILE]
+hackathon-reviewer parse    --csv FILE --output DIR [--config FILE]
+hackathon-reviewer clone    --output DIR [--config FILE] [--resume]
+hackathon-reviewer download --csv FILE --output DIR [--config FILE] [--resume]
+hackathon-reviewer analyze  --output DIR [--config FILE] [--resume]
+hackathon-reviewer report   --output DIR [--config FILE]
 ```
 
-The `--resume` flag skips already-completed work (cloned repos, downloaded videos, reviewed projects).
+The `--resume` flag (on by default) skips already-completed work (cloned repos, downloaded videos, reviewed projects).
 
 ## Configuration
 
