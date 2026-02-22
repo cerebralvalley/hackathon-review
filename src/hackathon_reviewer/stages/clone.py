@@ -54,6 +54,7 @@ LOCK_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", 
 # ---------------------------------------------------------------------------
 
 def _clone_repo(clone_url: str, dest_dir: Path) -> tuple[bool, str | None]:
+    dest_dir = dest_dir.resolve()
     if dest_dir.exists() and is_valid_repo(dest_dir):
         return True, None
 

@@ -97,7 +97,8 @@ class ReviewConfig(BaseModel):
         return os.environ.get("GEMINI_API_KEY", "")
 
     def ensure_dirs(self) -> None:
-        """Create all output directories."""
+        """Create all output directories and resolve to absolute paths."""
+        self.output_dir = self.output_dir.resolve()
         for d in [self.data_dir, self.repos_dir, self.videos_dir,
                   self.reports_dir, self.reports_dir / "projects"]:
             d.mkdir(parents=True, exist_ok=True)

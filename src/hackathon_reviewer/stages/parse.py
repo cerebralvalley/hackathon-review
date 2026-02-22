@@ -205,12 +205,12 @@ def parse_csv(cfg: ReviewConfig) -> list[Submission]:
 
         def _get(row: dict, field: str, fallback: str | None = None) -> str:
             configured = getattr(col, field, None)
-            if configured and configured in row:
+            if configured and configured in row and row[configured]:
                 return row[configured].strip()
-            if fallback and fallback in row:
+            if fallback and fallback in row and row[fallback]:
                 return row[fallback].strip()
             auto_col = auto.get(field)
-            if auto_col and auto_col in row:
+            if auto_col and auto_col in row and row[auto_col]:
                 return row[auto_col].strip()
             return ""
 
