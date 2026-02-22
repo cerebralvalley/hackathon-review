@@ -1,0 +1,59 @@
+# hackathon-reviewer configuration
+# Copy to config.yaml and customize for your hackathon.
+
+# CSV column mapping -- map your CSV headers to expected fields.
+# Only team_name, github_url, and video_url are required.
+columns:
+  team_name: "Team Name"
+  team_members: "Team Members"
+  project_name: "Project Name"
+  description: "Project Description"
+  github_url: "Public GitHub Repository"
+  video_url: "Demo Video"
+  # Any additional columns you want preserved in reports:
+  # extra:
+  #   - "Thoughts and feedback on building with Opus 4.6"
+
+# Code review LLM provider
+code_review:
+  provider: "anthropic"          # "anthropic" or "gemini"
+  model: "claude-opus-4-6"       # model name for the provider
+  max_tokens: 2000               # max output tokens per review
+  max_source_chars: 20000        # cap on source code sent to the LLM
+
+# Video analysis provider (Gemini native video upload)
+video_analysis:
+  provider: "gemini"
+  model: "gemini-2.5-flash"
+  max_video_duration: 180        # only analyze first N seconds
+
+# Hackathon-specific settings (all optional -- omit this section for generic use)
+# hackathon:
+#   name: "My Hackathon"
+#   deadline_utc: "2026-02-16T20:00:00"
+#   grace_period_minutes: 15
+#   start_date: "2026-02-10"
+#   end_date: "2026-02-16"
+#   verify_git_period: true
+
+# Scoring rubric (optional -- omit to skip scoring and just generate reports)
+# scoring:
+#   criteria:
+#     impact:
+#       weight: 0.25
+#       description: "Real-world potential, who benefits, product viability"
+#     ai_use:
+#       weight: 0.25
+#       description: "Creativity and depth of AI/LLM integration"
+#     depth:
+#       weight: 0.20
+#       description: "Engineering quality, iteration, craft"
+#     demo:
+#       weight: 0.30
+#       description: "Demo quality, working product, presentation"
+
+# Concurrency settings
+concurrency:
+  clone_workers: 4
+  video_download_workers: 4
+  llm_concurrent_requests: 3

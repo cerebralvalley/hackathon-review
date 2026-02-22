@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hackathon-reviewer"
+version = "0.1.0"
+description = "Automated hackathon submission reviewer — analyzes repos and demo videos, generates deep project reports."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "click>=8.1",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "requests>=2.31",
+    "anthropic>=0.40",
+    "google-genai>=1.0",
+    "yt-dlp>=2024.0",
+    "gdown>=5.0",
+]
+
+[project.scripts]
+hackathon-reviewer = "hackathon_reviewer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hackathon_reviewer"]
