@@ -24,7 +24,7 @@ code_review:
 # Video analysis provider (Gemini native video upload)
 video_analysis:
   provider: "gemini"
-  model: "gemini-2.5-flash"
+  model: "gemini-3-flash-preview"
   max_video_duration: 180        # only analyze first N seconds
 
 # Hackathon-specific settings (all optional -- omit this section for generic use)

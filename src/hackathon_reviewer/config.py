@@ -30,7 +30,7 @@ class CodeReviewConfig(BaseModel):
 
 class VideoAnalysisConfig(BaseModel):
     provider: str = "gemini"
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3-flash-preview"
     max_video_duration: int = 180
 
 

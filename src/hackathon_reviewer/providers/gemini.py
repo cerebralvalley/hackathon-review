@@ -75,7 +75,7 @@ Respond with ONLY valid JSON:
 
 
 class GeminiProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-3-flash-preview"):
         from google import genai
         self.client = genai.Client(api_key=api_key)
         self.model = model

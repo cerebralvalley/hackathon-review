@@ -80,15 +80,15 @@ code_review:
 # Use Gemini for code review (only needs a GEMINI_API_KEY, no Anthropic key)
 code_review:
   provider: "gemini"
-  model: "gemini-2.5-pro"
+  model: "gemini-3-flash-preview"
 ```
 
-**Video analysis** defaults to Gemini 2.5 Flash with native video upload:
+**Video analysis** defaults to Gemini 3 Flash with native video upload:
 
 ```yaml
 video_analysis:
   provider: "gemini"
-  model: "gemini-2.5-flash"      # or "gemini-2.5-pro" for higher quality
+  model: "gemini-3-flash-preview"    # or "gemini-3.1-pro-preview" for higher quality
 ```
 
 If you use Gemini for both code review and video analysis, you only need a single `GEMINI_API_KEY` -- no Anthropic key required.
