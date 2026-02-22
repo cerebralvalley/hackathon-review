@@ -52,10 +52,46 @@ The `--resume` flag (on by default) skips already-completed work (cloned repos, 
 Copy `config.example.yaml` to `config.yaml` and customize:
 
 - **Column mapping** -- tell the tool which CSV columns map to team name, GitHub URL, etc.
-- **Code review model** -- swap between Anthropic (Opus 4.6) and Gemini for code analysis
+- **Code review model** -- swap between Anthropic and Gemini for code analysis
 - **Video analysis** -- uses Gemini's native video understanding by default
 - **Hackathon settings** -- optionally enable deadline checking, git period verification
 - **Scoring rubric** -- define custom criteria and weights, or omit to skip scoring
+
+### Switching models
+
+Code review and video analysis use separate, independently configurable LLM providers.
+
+**Code review** defaults to Claude Opus 4.6 via Anthropic. To change it, set these fields in your `config.yaml`:
+
+```yaml
+code_review:
+  provider: "anthropic"          # or "gemini"
+  model: "claude-opus-4-6"       # any model the provider supports
+```
+
+Examples:
+
+```yaml
+# Use Claude Sonnet instead of Opus
+code_review:
+  provider: "anthropic"
+  model: "claude-sonnet-4-20250514"
+
+# Use Gemini for code review (only needs a GEMINI_API_KEY, no Anthropic key)
+code_review:
+  provider: "gemini"
+  model: "gemini-2.5-pro"
+```
+
+**Video analysis** defaults to Gemini 2.5 Flash with native video upload:
+
+```yaml
+video_analysis:
+  provider: "gemini"
+  model: "gemini-2.5-flash"      # or "gemini-2.5-pro" for higher quality
+```
+
+If you use Gemini for both code review and video analysis, you only need a single `GEMINI_API_KEY` -- no Anthropic key required.
 
 ## Output
 
