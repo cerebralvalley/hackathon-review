@@ -8,6 +8,14 @@ from pathlib import Path
 
 
 @dataclass
+class ScoringCriterionDef:
+    """A single scoring criterion passed to the LLM."""
+    key: str
+    weight: float
+    description: str
+
+
+@dataclass
 class CodeReviewContext:
     """Everything an LLM needs to review a project's code."""
     project_name: str
@@ -25,6 +33,7 @@ class CodeReviewContext:
     integration_patterns: str = ""
     transcript: str = ""
     extra_context: dict[str, str] = field(default_factory=dict)
+    scoring_criteria: list[ScoringCriterionDef] = field(default_factory=list)
 
 
 @dataclass

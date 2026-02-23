@@ -10,6 +10,7 @@ from hackathon_reviewer.providers.base import (
     CodeReviewContext,
     CodeReviewResponse,
     LLMProvider,
+    ScoringCriterionDef,
     VideoReviewContext,
     VideoReviewResponse,
 )
@@ -42,35 +43,43 @@ Respond with ONLY valid JSON:
 {{"transcript_summary": "...", "demo_classification": "...", "is_related_to_project": true/false, "review": "...", "scores": {{"demo": N}}}}
 """
 
-CODE_REVIEW_PROMPT = """You are a hackathon judge. Score this submission on 4 criteria, each 1-10. Be discriminating.
+DEFAULT_CRITERIA = [
+    ScoringCriterionDef(key="impact", weight=0.25, description="Real-world potential, who benefits, product viability"),
+    ScoringCriterionDef(key="ai_use", weight=0.25, description="Creativity and depth of AI/LLM integration"),
+    ScoringCriterionDef(key="depth", weight=0.20, description="Engineering quality, iteration, craft"),
+    ScoringCriterionDef(key="demo", weight=0.30, description="Demo quality, working product, presentation"),
+]
 
-**Impact (25%):** Real-world potential, who benefits, product viability
-- 1-3: Toy project / 4-6: Addresses a need but incremental / 7-8: Clear value / 9-10: Massive impact
 
-**AI Use (25%):** Creativity of AI/LLM integration
-- 1-3: Basic API call / 4-6: Competent but not novel / 7-8: Creative, uses advanced features / 9-10: Pushes boundaries
+def _build_code_review_prompt(criteria: list[ScoringCriterionDef]) -> str:
+    criteria_block = ""
+    for c in criteria:
+        label = c.key.replace("_", " ").title()
+        pct = int(c.weight * 100)
+        criteria_block += f"**{label} ({pct}%):** {c.description}\n"
+        criteria_block += "- 1-3: Poor / 4-6: Average / 7-8: Strong / 9-10: Exceptional\n\n"
 
-**Depth & Execution (20%):** Engineering quality, iteration, craft
-- 1-3: Sloppy first attempt / 4-6: Functional but straightforward / 7-8: Well-architected / 9-10: Production-grade
+    json_keys = ", ".join(f'"{c.key}": N' for c in criteria)
+    json_schema = "{" + f"{json_keys}, \"rationale\": \"1-2 sentence summary\"" + "}"
 
-**Demo (30%):** Based on the transcript
-- 1-3: No demo or broken / 4-6: Working but unpolished / 7-8: Clean and impressive / 9-10: Genuinely cool
+    return f"""You are a hackathon judge. Score this submission on the following criteria, each 1-10. Be discriminating — use the full range.
 
-**Project:** {project_name}
-**Team:** {team_name}
-**Description:** {description}
+{criteria_block}
+**Project:** {{project_name}}
+**Team:** {{team_name}}
+**Description:** {{description}}
 
-**Repo Stats:** LOC: {loc} | Commits: {commits} | Language: {language} | Tests: {has_tests}
-**AI Patterns:** {patterns}
+**Repo Stats:** LOC: {{loc}} | Commits: {{commits}} | Language: {{language}} | Tests: {{has_tests}}
+**AI Patterns:** {{patterns}}
 
 **Key Source Files:**
-{source_files}
+{{source_files}}
 
 **Demo Transcript:**
-{transcript}
+{{transcript}}
 
 Respond with ONLY valid JSON:
-{{"impact": N, "ai_use": N, "depth": N, "demo": N, "rationale": "1-2 sentence summary"}}
+{json_schema}
 """
 
 
@@ -81,7 +90,10 @@ class GeminiProvider(LLMProvider):
         self.model = model
 
     def review_code(self, ctx: CodeReviewContext) -> CodeReviewResponse:
-        prompt = CODE_REVIEW_PROMPT.format(
+        criteria = ctx.scoring_criteria if ctx.scoring_criteria else DEFAULT_CRITERIA
+        prompt_template = _build_code_review_prompt(criteria)
+
+        prompt = prompt_template.format(
             project_name=ctx.project_name,
             team_name=ctx.team_name,
             description=ctx.description[:500],
@@ -102,9 +114,10 @@ class GeminiProvider(LLMProvider):
             )
             scores_raw = json.loads(response.text)
             scores = {}
-            for key in ["impact", "ai_use", "depth", "demo"]:
-                if key in scores_raw:
-                    scores[key] = max(1, min(10, int(scores_raw[key])))
+            valid_keys = {c.key for c in criteria}
+            for key, val in scores_raw.items():
+                if key in valid_keys:
+                    scores[key] = max(1, min(10, int(val)))
 
             return CodeReviewResponse(
                 success=True,
@@ -130,7 +143,6 @@ class GeminiProvider(LLMProvider):
                 config={"mime_type": "video/mp4"},
             )
 
-            # Wait for file processing
             while video_file.state.name == "PROCESSING":
                 time.sleep(2)
                 video_file = self.client.files.get(name=video_file.name)
@@ -149,7 +161,6 @@ class GeminiProvider(LLMProvider):
 
             result = json.loads(response.text)
 
-            # Clean up uploaded file
             try:
                 self.client.files.delete(name=video_file.name)
             except Exception:

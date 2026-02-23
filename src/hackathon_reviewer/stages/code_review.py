@@ -19,7 +19,7 @@ from hackathon_reviewer.models import (
     StaticAnalysisResult,
     Submission,
 )
-from hackathon_reviewer.providers.base import CodeReviewContext, LLMProvider
+from hackathon_reviewer.providers.base import CodeReviewContext, LLMProvider, ScoringCriterionDef
 from hackathon_reviewer.utils.file_reader import read_key_files
 
 
@@ -82,6 +82,13 @@ def _review_one(
         for k, v in static.integration_patterns.items()
     ) or "none detected"
 
+    criteria_defs = []
+    if cfg.scoring and cfg.scoring.criteria:
+        for key, crit in cfg.scoring.criteria.items():
+            criteria_defs.append(ScoringCriterionDef(
+                key=key, weight=crit.weight, description=crit.description,
+            ))
+
     ctx = CodeReviewContext(
         project_name=sub.project_name,
         team_name=sub.team_name,
@@ -98,6 +105,7 @@ def _review_one(
         integration_patterns=patterns_str,
         transcript=transcript,
         extra_context=sub.extra_fields,
+        scoring_criteria=criteria_defs,
     )
 
     resp = provider.review_code(ctx)
