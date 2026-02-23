@@ -17,12 +17,14 @@ Automated hackathon submission reviewer. Takes a CSV of project submissions, clo
 # Install (requires Python 3.11+)
 pip install -e .
 
-# Set API keys
-export ANTHROPIC_API_KEY="your-key"
-export GEMINI_API_KEY="your-key"
+# Set up API keys
+cp .env.example .env
+# Then edit .env and add your keys:
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   GEMINI_API_KEY=AIza...
 
 # System dependencies
-brew install ffmpeg   # needed for video duration detection
+brew install ffmpeg   # needed for video duration/trimming
 
 # Run the full pipeline
 hackathon-reviewer run --csv submissions.csv --output ./output
@@ -30,6 +32,8 @@ hackathon-reviewer run --csv submissions.csv --output ./output
 # Or with a config file for custom settings
 hackathon-reviewer run --csv submissions.csv --config config.yaml --output ./output
 ```
+
+The `.env` file is auto-loaded on every run -- no need to `export` keys manually. See `.env.example` for the template.
 
 ## CLI commands
 
