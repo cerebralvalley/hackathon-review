@@ -22,7 +22,9 @@ from hackathon_reviewer.utils.video_download import (
 )
 
 
-def _download_one(sub: Submission, cfg: ReviewConfig) -> tuple[int, VideoDownloadResult]:
+def _download_one(
+    sub: Submission, cfg: ReviewConfig
+) -> tuple[int, VideoDownloadResult]:
     """Download a single video. Returns (team_number, result) for thread-safe collection."""
     result = VideoDownloadResult()
     video = sub.video
@@ -66,6 +68,7 @@ def _download_one(sub: Submission, cfg: ReviewConfig) -> tuple[int, VideoDownloa
 # Stage entry points
 # ---------------------------------------------------------------------------
 
+
 def run_video_download(
     cfg: ReviewConfig,
     submissions: list[Submission],
@@ -92,8 +95,12 @@ def run_video_download(
             work.append(sub)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_download_one, sub, cfg): sub.team_number for sub in work}
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Downloading videos"):
+        futures = {
+            pool.submit(_download_one, sub, cfg): sub.team_number for sub in work
+        }
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Downloading videos"
+        ):
             team_num, result = future.result()
             results[team_num] = result
 
@@ -118,5 +125,7 @@ def load_video_downloads(cfg: ReviewConfig) -> dict[int, VideoDownloadResult]:
     """Load previously saved video download results."""
     path = cfg.data_dir / "video_downloads.json"
     if not path.exists():
-        raise FileNotFoundError(f"{path} not found. Run the video download stage first.")
+        raise FileNotFoundError(
+            f"{path} not found. Run the video download stage first."
+        )
     return _load_downloads_file(path)

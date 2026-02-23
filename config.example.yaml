@@ -44,7 +44,7 @@ video_analysis:
 #       description: "Real-world potential, who benefits, product viability"
 #     ai_use:
 #       weight: 0.25
-#       description: "Creativity and depth of AI/LLM integration"
+#       description: "Creativity and depth of AI/LLM integration (maps to LLM 'AI Use' score)"
 #     depth:
 #       weight: 0.20
 #       description: "Engineering quality, iteration, craft"
