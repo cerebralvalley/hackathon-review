@@ -6,8 +6,11 @@ import sys
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
 
 from hackathon_reviewer.config import ReviewConfig, load_config
+
+load_dotenv()
 
 
 def _build_config(csv: str | None, config: str | None, output: str) -> ReviewConfig:
