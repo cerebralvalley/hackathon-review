@@ -1,9 +1,11 @@
-"""Stage 5: LLM-powered code review via pluggable provider."""
+"""Stage 5: LLM-powered code review via pluggable provider (parallelized)."""
 
 from __future__ import annotations
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import click
@@ -116,6 +118,9 @@ def _review_one(
 # Stage entry points
 # ---------------------------------------------------------------------------
 
+_save_lock = threading.Lock()
+
+
 def run_code_review(
     cfg: ReviewConfig,
     submissions: list[Submission],
@@ -123,9 +128,11 @@ def run_code_review(
     static_results: list[StaticAnalysisResult],
     resume: bool = True,
 ) -> list[CodeReviewResult]:
-    """Run LLM code review on all submissions, save to JSON."""
+    """Run LLM code review on all submissions in parallel, save to JSON."""
+    workers = cfg.concurrency.llm_concurrent_requests
     click.echo("\n--- Stage 5: LLM Code Review ---")
     click.echo(f"  Provider: {cfg.code_review.provider} ({cfg.code_review.model})")
+    click.echo(f"  Workers: {workers}")
 
     provider = _build_provider(cfg)
 
@@ -138,33 +145,47 @@ def run_code_review(
         existing = {r.team_number: r for r in _load_reviews_file(out_path)}
         click.echo(f"  Resuming: {len(existing)} already reviewed")
 
-    results: list[CodeReviewResult] = []
+    results_map: dict[int, CodeReviewResult] = {}
+    work: list[Submission] = []
+
+    for sub in submissions:
+        if resume and sub.team_number in existing and existing[sub.team_number].success:
+            results_map[sub.team_number] = existing[sub.team_number]
+        else:
+            meta = meta_by_team.get(sub.team_number)
+            static = static_by_team.get(sub.team_number)
+            if not meta or not static:
+                results_map[sub.team_number] = CodeReviewResult(
+                    team_number=sub.team_number, error="missing_data",
+                )
+            else:
+                work.append(sub)
+
     total_input_tokens = 0
     total_output_tokens = 0
     start = time.time()
+    completed = 0
 
-    for i, sub in enumerate(tqdm(submissions, desc="Code review")):
-        if resume and sub.team_number in existing and existing[sub.team_number].success:
-            results.append(existing[sub.team_number])
-            continue
+    def _do_one(sub: Submission) -> tuple[int, CodeReviewResult]:
+        meta = meta_by_team[sub.team_number]
+        static = static_by_team[sub.team_number]
+        return sub.team_number, _review_one(provider, sub, meta, static, cfg)
 
-        meta = meta_by_team.get(sub.team_number)
-        static = static_by_team.get(sub.team_number)
-        if not meta or not static:
-            results.append(CodeReviewResult(team_number=sub.team_number, error="missing_data"))
-            continue
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_do_one, sub): sub.team_number for sub in work}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Code review"):
+            team_num, result = future.result()
+            results_map[team_num] = result
+            if result.success:
+                total_input_tokens += result.input_tokens
+                total_output_tokens += result.output_tokens
+            completed += 1
+            if completed % 10 == 0:
+                with _save_lock:
+                    _save_results_map(results_map, submissions, out_path)
 
-        result = _review_one(provider, sub, meta, static, cfg)
-        results.append(result)
-
-        if result.success:
-            total_input_tokens += result.input_tokens
-            total_output_tokens += result.output_tokens
-
-        # Save progress every 25 reviews
-        if (i + 1) % 25 == 0:
-            _save_reviews(results, out_path)
-
+    results = [results_map.get(sub.team_number, CodeReviewResult(team_number=sub.team_number))
+               for sub in submissions]
     _save_reviews(results, out_path)
 
     elapsed = time.time() - start
@@ -180,6 +201,11 @@ def run_code_review(
 def _save_reviews(results: list[CodeReviewResult], path: Path) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump([r.model_dump(mode="json") for r in results], f, indent=2, ensure_ascii=False)
+
+
+def _save_results_map(results_map: dict[int, CodeReviewResult], submissions: list[Submission], path: Path) -> None:
+    ordered = [results_map[s.team_number] for s in submissions if s.team_number in results_map]
+    _save_reviews(ordered, path)
 
 
 def _load_reviews_file(path: Path) -> list[CodeReviewResult]:
