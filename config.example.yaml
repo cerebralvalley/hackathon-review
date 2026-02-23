@@ -25,7 +25,7 @@ code_review:
 video_analysis:
   provider: "gemini"
   model: "gemini-3-flash-preview"
-  max_video_duration: 180        # only analyze first N seconds
+  max_video_duration: 300        # trim videos longer than this (seconds)
 
 # Hackathon-specific settings (all optional -- omit this section for generic use)
 # hackathon:

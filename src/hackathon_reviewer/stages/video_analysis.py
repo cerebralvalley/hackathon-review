@@ -1,9 +1,11 @@
-"""Stage 6: Video analysis via Gemini native video understanding."""
+"""Stage 6: Video analysis via Gemini native video understanding (parallelized)."""
 
 from __future__ import annotations
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import click
@@ -18,6 +20,7 @@ from hackathon_reviewer.models import (
     VideoDownloadResult,
 )
 from hackathon_reviewer.providers.base import VideoReviewContext
+from hackathon_reviewer.utils.video_download import prepare_video_for_upload
 
 
 DEMO_CLASSIFICATION_MAP = {
@@ -64,12 +67,17 @@ def _analyze_one(
         result.analysis_error = "video_file_missing"
         return result
 
+    # Trim long videos and downscale to 720p for faster upload
+    prepared_path = prepare_video_for_upload(
+        video_path, max_duration=cfg.video_analysis.max_video_duration,
+    )
+
     ctx = VideoReviewContext(
         project_name=sub.project_name,
         team_name=sub.team_name,
         team_number=sub.team_number,
         description=sub.description,
-        video_path=video_path,
+        video_path=prepared_path,
         max_duration=cfg.video_analysis.max_video_duration,
     )
 
@@ -96,15 +104,21 @@ def _analyze_one(
 # Stage entry points
 # ---------------------------------------------------------------------------
 
+_save_lock = threading.Lock()
+
+
 def run_video_analysis(
     cfg: ReviewConfig,
     submissions: list[Submission],
     video_downloads: dict[int, VideoDownloadResult],
     resume: bool = True,
 ) -> list[VideoAnalysisResult]:
-    """Run Gemini video analysis on all downloaded videos, save to JSON."""
+    """Run Gemini video analysis on all downloaded videos in parallel."""
     click.echo("\n--- Stage 6: Video Analysis ---")
+    workers = cfg.concurrency.llm_concurrent_requests
     click.echo(f"  Provider: {cfg.video_analysis.provider} ({cfg.video_analysis.model})")
+    click.echo(f"  Workers: {workers}")
+    click.echo(f"  Videos >5min will be trimmed and downscaled to 720p")
 
     provider = _build_provider(cfg)
 
@@ -114,21 +128,35 @@ def run_video_analysis(
         existing = {r.team_number: r for r in _load_analysis_file(out_path)}
         click.echo(f"  Resuming: {len(existing)} already analyzed")
 
-    results: list[VideoAnalysisResult] = []
-    start = time.time()
+    results_map: dict[int, VideoAnalysisResult] = {}
+    work: list[Submission] = []
 
-    for i, sub in enumerate(tqdm(submissions, desc="Video analysis")):
+    for sub in submissions:
         if resume and sub.team_number in existing and existing[sub.team_number].analysis_success:
-            results.append(existing[sub.team_number])
-            continue
+            results_map[sub.team_number] = existing[sub.team_number]
+        else:
+            work.append(sub)
 
+    start = time.time()
+    completed = 0
+
+    def _do_one(sub: Submission) -> tuple[int, VideoAnalysisResult]:
         download = video_downloads.get(sub.team_number, VideoDownloadResult())
-        result = _analyze_one(provider, sub, download, cfg)
-        results.append(result)
+        return sub.team_number, _analyze_one(provider, sub, download, cfg)
 
-        # Save progress every 25
-        if (i + 1) % 25 == 0:
-            _save_analysis(results, out_path)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_do_one, sub): sub.team_number for sub in work}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Video analysis"):
+            team_num, result = future.result()
+            results_map[team_num] = result
+            completed += 1
+            if completed % 10 == 0:
+                with _save_lock:
+                    _save_analysis_map(results_map, submissions, out_path)
+
+    # Preserve submission order in output
+    results = [results_map.get(sub.team_number, VideoAnalysisResult(team_number=sub.team_number))
+               for sub in submissions]
 
     _save_analysis(results, out_path)
 
@@ -147,6 +175,11 @@ def run_video_analysis(
 def _save_analysis(results: list[VideoAnalysisResult], path: Path) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump([r.model_dump(mode="json") for r in results], f, indent=2, ensure_ascii=False)
+
+
+def _save_analysis_map(results_map: dict[int, VideoAnalysisResult], submissions: list[Submission], path: Path) -> None:
+    ordered = [results_map[s.team_number] for s in submissions if s.team_number in results_map]
+    _save_analysis(ordered, path)
 
 
 def _load_analysis_file(path: Path) -> list[VideoAnalysisResult]:

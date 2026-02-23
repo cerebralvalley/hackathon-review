@@ -31,7 +31,7 @@ class CodeReviewConfig(BaseModel):
 class VideoAnalysisConfig(BaseModel):
     provider: str = "gemini"
     model: str = "gemini-3-flash-preview"
-    max_video_duration: int = 180
+    max_video_duration: int = 300  # trim videos longer than this (seconds)
 
 
 class HackathonConfig(BaseModel):
