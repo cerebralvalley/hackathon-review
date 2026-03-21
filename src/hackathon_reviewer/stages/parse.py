@@ -27,31 +27,49 @@ from hackathon_reviewer.models import (
 # URL validation
 # ---------------------------------------------------------------------------
 
+
 def classify_github_url(raw_url: str) -> GitHubInfo:
     url = raw_url.strip()
-    info = GitHubInfo(original=url)
+
+    # Handle comma-separated URLs: take the first one
+    if "," in url:
+        url = url.split(",")[0].strip()
+
+    info = GitHubInfo(original=raw_url.strip())
 
     if not url:
         info.issues.append("empty_url")
         return info
 
+    if not url.startswith("http"):
+        url = "https://" + url
+
     url = url.replace("https:www.github.com", "https://www.github.com")
     url = url.replace("www.github.com", "github.com")
 
     parsed = urlparse(url)
+
+    # HuggingFace Spaces/repos are git-clonable
+    if "huggingface.co" in parsed.netloc:
+        info.cleaned = url
+        clone_url = re.sub(r"/tree/.*$", "", url).rstrip("/")
+        info.clone_url = clone_url
+        info.is_valid = True
+        if "/tree/" in raw_url:
+            info.issues.append("stripped_branch_ref")
+        return info
+
     if "github.com" not in parsed.netloc and "github.com" not in parsed.path:
         info.issues.append(f"not_github_url: {parsed.netloc}")
         info.cleaned = url
         return info
 
-    if not url.startswith("http"):
-        url = "https://" + url
-
     info.cleaned = url
 
     clone_url = re.sub(r"/tree/.*$", "", url)
-    clone_url = re.sub(r"/blob/.*$", "", url)
+    clone_url = re.sub(r"/blob/.*$", "", clone_url)
     clone_url = clone_url.rstrip("/")
+    clone_url = re.sub(r"\.git$", "", clone_url)
 
     if "github.io" in url:
         info.issues.append("github_pages_not_repo")
@@ -64,6 +82,27 @@ def classify_github_url(raw_url: str) -> GitHubInfo:
         info.issues.append("stripped_branch_ref")
 
     return info
+
+
+_GITHUB_REPO_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?github\.com/([\w.\-]+/[\w.\-]+)",
+    re.IGNORECASE,
+)
+_COLAB_GITHUB_RE = re.compile(
+    r"colab\.research\.google\.com/github/([\w.\-]+/[\w.\-]+)",
+    re.IGNORECASE,
+)
+
+
+def _extract_github_url_from_text(text: str) -> str | None:
+    """Find the first github.com repo URL in free text (description, Colab links, etc.)."""
+    for regex in (_GITHUB_REPO_RE, _COLAB_GITHUB_RE):
+        m = regex.search(text)
+        if m:
+            owner_repo = m.group(1).rstrip("/.")
+            if "/" in owner_repo:
+                return f"https://github.com/{owner_repo}"
+    return None
 
 
 def classify_video_url(raw_url: str) -> VideoInfo:
@@ -113,6 +152,7 @@ def classify_video_url(raw_url: str) -> VideoInfo:
 # Lateness detection
 # ---------------------------------------------------------------------------
 
+
 def compute_lateness(timestamp_str: str, cfg: ReviewConfig) -> TimingInfo:
     timing = TimingInfo(submitted_utc=timestamp_str.strip())
 
@@ -148,11 +188,31 @@ def compute_lateness(timestamp_str: str, cfg: ReviewConfig) -> TimingInfo:
 COLUMN_ALIASES = {
     "team_name": ["team name", "team", "teamname", "team_name"],
     "team_members": ["team members", "members", "team_members", "participants"],
-    "project_name": ["project name", "project", "projectname", "project_name", "submission name"],
+    "project_name": [
+        "project name",
+        "project",
+        "projectname",
+        "project_name",
+        "submission name",
+    ],
     "description": ["project description", "description", "desc", "summary", "about"],
-    "github_url": ["public github repository", "github", "github url", "github_url", "repo", "repository", "github repo"],
+    "github_url": [
+        "public github repository",
+        "github",
+        "github url",
+        "github_url",
+        "repo",
+        "repository",
+        "github repo",
+    ],
     "video_url": ["demo video", "video", "video url", "video_url", "demo", "demo url"],
-    "submitted_at": ["time submitted", "submitted", "submitted_at", "timestamp", "submission time"],
+    "submitted_at": [
+        "time submitted",
+        "submitted",
+        "submitted_at",
+        "timestamp",
+        "submission time",
+    ],
 }
 
 
@@ -175,10 +235,13 @@ def _auto_detect_columns(headers: list[str]) -> dict[str, str | None]:
 # Parsing
 # ---------------------------------------------------------------------------
 
+
 def _parse_members(raw: str) -> list[TeamMember]:
     members = []
     for match in re.finditer(r"([^(,]+?)\s*\(([^)]+)\)", raw):
-        members.append(TeamMember(name=match.group(1).strip(), email=match.group(2).strip()))
+        members.append(
+            TeamMember(name=match.group(1).strip(), email=match.group(2).strip())
+        )
     if not members and raw.strip():
         members.append(TeamMember(name=raw.strip()))
     return members
@@ -190,12 +253,28 @@ def _sanitize_name(name: str) -> str:
     return s[:50]
 
 
+def _find_header_row(filepath: Path) -> int:
+    """Find the actual CSV header row, skipping section labels like 'PROJECTS TABLE'."""
+    with open(filepath, "r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            stripped = line.strip().rstrip(",")
+            # Skip empty lines and section labels (single-cell rows)
+            if not stripped or "," not in stripped:
+                continue
+            return i
+    return 0
+
+
 def parse_csv(cfg: ReviewConfig) -> list[Submission]:
     """Parse the submissions CSV using column mapping from config."""
     if not cfg.csv_path or not cfg.csv_path.exists():
         raise FileNotFoundError(f"CSV not found: {cfg.csv_path}")
 
+    skip_rows = _find_header_row(cfg.csv_path)
+
     with open(cfg.csv_path, "r", encoding="utf-8") as f:
+        for _ in range(skip_rows):
+            next(f)
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
 
@@ -217,6 +296,11 @@ def parse_csv(cfg: ReviewConfig) -> list[Submission]:
         submissions: list[Submission] = []
 
         for idx, row in enumerate(reader, start=1):
+            # Stop at section breaks (e.g. "SCORES TABLE")
+            first_val = next((v for v in row.values() if v and v.strip()), "")
+            if first_val.endswith("TABLE") or not any(v and v.strip() for v in row.values()):
+                break
+
             team_name = _get(row, "team_name")
             project_name = _get(row, "project_name") or team_name
             sanitized = f"{idx:03d}_{_sanitize_name(project_name)}"
@@ -224,29 +308,43 @@ def parse_csv(cfg: ReviewConfig) -> list[Submission]:
             members_raw = _get(row, "team_members")
             members = _parse_members(members_raw) if members_raw else []
 
-            github = classify_github_url(_get(row, "github_url"))
+            github_raw = _get(row, "github_url")
+            if not github_raw:
+                all_text = " ".join(v for v in row.values() if v)
+                github_raw = _extract_github_url_from_text(all_text) or ""
+            if not github_raw:
+                # Fall back to HF Spaces link as a clonable repo
+                for hf_col in ("Hugging Face Spaces Link", "Hugging Face Link"):
+                    if hf_col in row and row[hf_col] and "huggingface.co" in row[hf_col]:
+                        github_raw = row[hf_col].strip()
+                        break
+            github = classify_github_url(github_raw)
             video = classify_video_url(_get(row, "video_url"))
 
             submitted_at = _get(row, "submitted_at")
-            timing = compute_lateness(submitted_at, cfg) if submitted_at else TimingInfo()
+            timing = (
+                compute_lateness(submitted_at, cfg) if submitted_at else TimingInfo()
+            )
 
             extra: dict[str, str] = {}
             for extra_col in col.extra:
                 if extra_col in row:
                     extra[extra_col] = row[extra_col].strip()
 
-            submissions.append(Submission(
-                team_number=idx,
-                team_name=team_name,
-                project_name=project_name,
-                sanitized_name=sanitized,
-                members=members,
-                description=_get(row, "description"),
-                github=github,
-                video=video,
-                timing=timing,
-                extra_fields=extra,
-            ))
+            submissions.append(
+                Submission(
+                    team_number=idx,
+                    team_name=team_name,
+                    project_name=project_name,
+                    sanitized_name=sanitized,
+                    members=members,
+                    description=_get(row, "description"),
+                    github=github,
+                    video=video,
+                    timing=timing,
+                    extra_fields=extra,
+                )
+            )
 
     return submissions
 
@@ -254,6 +352,7 @@ def parse_csv(cfg: ReviewConfig) -> list[Submission]:
 # ---------------------------------------------------------------------------
 # Stage entry points
 # ---------------------------------------------------------------------------
+
 
 def run_parse(cfg: ReviewConfig) -> list[Submission]:
     """Parse CSV, print summary, save to JSON."""
@@ -272,7 +371,12 @@ def run_parse(cfg: ReviewConfig) -> list[Submission]:
 
     out_path = cfg.data_dir / "submissions.json"
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump([s.model_dump(mode="json") for s in submissions], f, indent=2, ensure_ascii=False)
+        json.dump(
+            [s.model_dump(mode="json") for s in submissions],
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
     click.echo(f"  Saved to {out_path}")
 
     return submissions
