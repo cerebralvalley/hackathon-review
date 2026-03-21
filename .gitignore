@@ -14,4 +14,8 @@ venv/
 repos/
 videos/
 output/
+output-*/
 .DS_Store
+config.yaml
+*.db
+data/
