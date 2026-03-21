@@ -44,19 +44,70 @@ SCANNABLE_FILENAMES = {
 }
 
 # ---------------------------------------------------------------------------
-# AI integration pattern detection
+# Pattern presets — select via config `static_analysis.pattern_preset`
 # ---------------------------------------------------------------------------
 
-AI_PATTERNS = {
+COMMON_PATTERNS: dict[str, dict] = {
+    "openai_sdk": {
+        "patterns": [
+            r"import\s+openai", r"from\s+openai",
+            r"OpenAI\(", r"OPENAI_API_KEY",
+        ],
+        "weight": 2,
+        "description": "OpenAI SDK usage",
+    },
     "anthropic_sdk": {
         "patterns": [
             r"import\s+anthropic", r"from\s+anthropic",
             r"require\(['\"]@anthropic", r"require\(['\"]anthropic",
             r"import\s+Anthropic", r"new\s+Anthropic",
         ],
-        "weight": 3,
+        "weight": 2,
         "description": "Anthropic SDK import/usage",
     },
+    "gemini_sdk": {
+        "patterns": [
+            r"import\s+google\.genai", r"from\s+google\s+import\s+genai",
+            r"genai\.Client", r"GEMINI_API_KEY",
+        ],
+        "weight": 2,
+        "description": "Google Gemini SDK usage",
+    },
+    "agentic_pattern": {
+        "patterns": [
+            r"agent.*loop", r"observe.*act", r"autonomous",
+            r"self.*correct", r"plan.*execute",
+        ],
+        "weight": 3,
+        "description": "Agentic patterns",
+    },
+    "tool_use": {
+        "patterns": [
+            r"tool_use", r"tool_choice", r"function_calling",
+            r"tools\s*=\s*\[", r"input_schema",
+        ],
+        "weight": 3,
+        "description": "Tool use / function calling",
+    },
+    "streaming": {
+        "patterns": [
+            r"stream.*message", r"with.*stream",
+            r"content_block", r"message_stream",
+        ],
+        "weight": 2,
+        "description": "Streaming response handling",
+    },
+    "system_prompt": {
+        "patterns": [
+            r"system\s*[=:]\s*['\"]", r"system_prompt",
+            r"role.*system",
+        ],
+        "weight": 1,
+        "description": "System prompt usage",
+    },
+}
+
+_AI_HACKATHON_EXTRA: dict[str, dict] = {
     "claude_model_reference": {
         "patterns": [
             r"claude-opus", r"claude-sonnet", r"claude-haiku",
@@ -79,14 +130,6 @@ AI_PATTERNS = {
         "weight": 4,
         "description": "Extended thinking / chain-of-thought",
     },
-    "tool_use": {
-        "patterns": [
-            r"tool_use", r"tool_choice", r"function_calling",
-            r"tools\s*=\s*\[", r"input_schema",
-        ],
-        "weight": 3,
-        "description": "Tool use / function calling",
-    },
     "mcp_server": {
         "patterns": [
             r"mcp.*server", r"model.?context.?protocol",
@@ -103,14 +146,6 @@ AI_PATTERNS = {
         "weight": 3,
         "description": "Claude Code integration",
     },
-    "streaming": {
-        "patterns": [
-            r"stream.*message", r"with.*stream",
-            r"content_block", r"message_stream",
-        ],
-        "weight": 2,
-        "description": "Streaming response handling",
-    },
     "multi_turn": {
         "patterns": [
             r"conversation.*history", r"messages\s*[\.\[]\s*append",
@@ -119,39 +154,116 @@ AI_PATTERNS = {
         "weight": 2,
         "description": "Multi-turn conversation",
     },
-    "agentic_pattern": {
+}
+
+_OPENENV_EXTRA: dict[str, dict] = {
+    "openenv": {
         "patterns": [
-            r"agent.*loop", r"observe.*act", r"autonomous",
-            r"self.*correct", r"plan.*execute",
+            r"import\s+openenv", r"from\s+openenv",
+            r"open.?env", r"OpenEnv",
+        ],
+        "weight": 5,
+        "description": "OpenEnv framework usage",
+    },
+    "unsloth": {
+        "patterns": [
+            r"import\s+unsloth", r"from\s+unsloth",
+            r"unsloth", r"FastLanguageModel",
+            r"UnslothTrainer",
+        ],
+        "weight": 4,
+        "description": "Unsloth AI training framework",
+    },
+    "trl": {
+        "patterns": [
+            r"import\s+trl", r"from\s+trl",
+            r"GRPOTrainer", r"PPOTrainer", r"SFTTrainer",
+            r"DPOTrainer", r"RewardTrainer",
+        ],
+        "weight": 4,
+        "description": "HuggingFace TRL (Transformer Reinforcement Learning)",
+    },
+    "grpo": {
+        "patterns": [
+            r"GRPO", r"group.?relative.?policy",
+            r"grpo_config", r"GRPOConfig",
+        ],
+        "weight": 4,
+        "description": "GRPO (Group Relative Policy Optimization)",
+    },
+    "reward_modeling": {
+        "patterns": [
+            r"reward.?function", r"reward.?model", r"reward.?signal",
+            r"compute.?reward", r"reward_fn", r"get_reward",
+            r"reward.?shaping", r"reward.?curve",
+        ],
+        "weight": 4,
+        "description": "Reward function / reward modeling",
+    },
+    "rl_environment": {
+        "patterns": [
+            r"gymnasium", r"import\s+gym", r"from\s+gym",
+            r"env\.reset", r"env\.step", r"observation.?space",
+            r"action.?space", r"make_env",
         ],
         "weight": 3,
-        "description": "Agentic patterns",
+        "description": "RL environment (Gymnasium/Gym) patterns",
     },
-    "openai_sdk": {
+    "huggingface_spaces": {
         "patterns": [
-            r"import\s+openai", r"from\s+openai",
-            r"OpenAI\(", r"OPENAI_API_KEY",
+            r"gradio", r"import\s+gradio", r"from\s+gradio",
+            r"gr\.Interface", r"gr\.Blocks",
+            r"huggingface.co/spaces", r"hf\.space",
+            r"spaces\.launch",
         ],
-        "weight": 2,
-        "description": "OpenAI SDK usage",
+        "weight": 3,
+        "description": "HuggingFace Spaces / Gradio deployment",
     },
-    "gemini_sdk": {
+    "huggingface_hub": {
         "patterns": [
-            r"import\s+google\.genai", r"from\s+google\s+import\s+genai",
-            r"genai\.Client", r"GEMINI_API_KEY",
+            r"from\s+huggingface_hub", r"import\s+huggingface_hub",
+            r"from\s+transformers", r"import\s+transformers",
+            r"AutoModelFor", r"AutoTokenizer",
+            r"push_to_hub", r"HfApi",
         ],
-        "weight": 2,
-        "description": "Google Gemini SDK usage",
+        "weight": 3,
+        "description": "HuggingFace Hub / Transformers usage",
     },
-    "system_prompt": {
+    "multi_agent": {
         "patterns": [
-            r"system\s*[=:]\s*['\"]", r"system_prompt",
-            r"role.*system",
+            r"multi.?agent", r"agent.*interact", r"agent.*cooperat",
+            r"agent.*compet", r"negotiat", r"coalition",
+            r"theory.?of.?mind", r"self.?play",
         ],
-        "weight": 1,
-        "description": "System prompt usage",
+        "weight": 3,
+        "description": "Multi-agent interaction patterns",
+    },
+    "training_pipeline": {
+        "patterns": [
+            r"training.?loop", r"train_model", r"trainer\.train",
+            r"training.?script", r"training.?config",
+            r"epochs?", r"batch.?size", r"learning.?rate",
+            r"wandb", r"tensorboard", r"training.?log",
+        ],
+        "weight": 3,
+        "description": "Training pipeline / experiment tracking",
     },
 }
+
+PATTERN_PRESETS: dict[str, dict[str, dict]] = {
+    "general": COMMON_PATTERNS,
+    "ai_hackathon": {**COMMON_PATTERNS, **_AI_HACKATHON_EXTRA},
+    "openenv": {**COMMON_PATTERNS, **_OPENENV_EXTRA},
+}
+
+
+def get_patterns(cfg: ReviewConfig) -> dict[str, dict]:
+    """Resolve the active pattern set from config preset + extra_patterns."""
+    preset_name = cfg.static_analysis.pattern_preset
+    patterns = dict(PATTERN_PRESETS.get(preset_name, COMMON_PATTERNS))
+    for name, pat_cfg in cfg.static_analysis.extra_patterns.items():
+        patterns[name] = pat_cfg
+    return patterns
 
 BOILERPLATE_INDICATORS = {
     "create_react_app": {
@@ -181,7 +293,10 @@ def _scan_file(filepath: Path) -> str:
         return ""
 
 
-def _detect_ai_integration(repo_dir: Path) -> tuple[dict[str, PatternMatch], int, IntegrationDepth]:
+def _detect_ai_integration(
+    repo_dir: Path,
+    active_patterns: dict[str, dict],
+) -> tuple[dict[str, PatternMatch], int, IntegrationDepth]:
     patterns_found: dict[str, PatternMatch] = {}
     total_matches = 0
 
@@ -202,7 +317,7 @@ def _detect_ai_integration(repo_dir: Path) -> tuple[dict[str, PatternMatch], int
 
             rel_path = str(fpath.relative_to(repo_dir))
 
-            for pattern_name, config in AI_PATTERNS.items():
+            for pattern_name, config in active_patterns.items():
                 for regex in config["patterns"]:
                     matches = re.findall(regex, content, re.IGNORECASE)
                     if matches:
@@ -217,7 +332,7 @@ def _detect_ai_integration(repo_dir: Path) -> tuple[dict[str, PatternMatch], int
 
     score = 0
     for pname, pdata in patterns_found.items():
-        weight = AI_PATTERNS[pname]["weight"]
+        weight = active_patterns[pname]["weight"]
         score += weight * min(pdata.match_count, 5)
 
     pattern_count = len(patterns_found)
@@ -310,7 +425,12 @@ def _analyze_structure(repo_dir: Path) -> RepoStructure:
 # Process one submission
 # ---------------------------------------------------------------------------
 
-def _process_one(sub: Submission, meta: RepoMetadata, cfg: ReviewConfig) -> StaticAnalysisResult:
+def _process_one(
+    sub: Submission,
+    meta: RepoMetadata,
+    cfg: ReviewConfig,
+    active_patterns: dict[str, dict],
+) -> StaticAnalysisResult:
     result = StaticAnalysisResult(
         team_number=sub.team_number,
         clone_success=meta.clone_success,
@@ -321,7 +441,7 @@ def _process_one(sub: Submission, meta: RepoMetadata, cfg: ReviewConfig) -> Stat
 
     repo_dir = cfg.repos_dir / sub.sanitized_name
 
-    patterns, score, depth = _detect_ai_integration(repo_dir)
+    patterns, score, depth = _detect_ai_integration(repo_dir, active_patterns)
     result.integration_patterns = patterns
     result.integration_score = score
     result.integration_depth = depth
@@ -346,6 +466,8 @@ def run_static_analysis(
 ) -> list[StaticAnalysisResult]:
     """Run static analysis on all repos, save to JSON."""
     click.echo("\n--- Stage 4: Static Analysis ---")
+    active_patterns = get_patterns(cfg)
+    click.echo(f"  Pattern preset: {cfg.static_analysis.pattern_preset} ({len(active_patterns)} patterns)")
 
     meta_by_team = {m.team_number: m for m in repo_metadata}
     results: list[StaticAnalysisResult] = []
@@ -355,7 +477,7 @@ def run_static_analysis(
             team_number=sub.team_number, team_name=sub.team_name,
             project_name=sub.project_name, sanitized_name=sub.sanitized_name,
         ))
-        results.append(_process_one(sub, meta, cfg))
+        results.append(_process_one(sub, meta, cfg, active_patterns))
 
     depths = {}
     for r in results:
