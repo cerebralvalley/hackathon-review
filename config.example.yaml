@@ -21,11 +21,50 @@ code_review:
   max_tokens: 2000               # max output tokens per review
   max_source_chars: 20000        # cap on source code sent to the LLM
 
+  # Hackathon-specific context prepended to the review prompt.
+  # Tells the LLM what this hackathon is about so it can judge accordingly.
+  # prompt_preamble: >
+  #   Projects must build RL environments using OpenEnv (0.2.1)
+  #   deployed on HuggingFace Spaces.
+
+  # Narrative sections the LLM writes in its review.
+  # Omit to use generic defaults (What it does, Architecture, AI Integration,
+  # Depth & Execution, Demo Assessment).
+  # review_sections:
+  #   - name: "What it does"
+  #     instruction: "1-2 sentences describing the project"
+  #   - name: "Architecture"
+  #     instruction: "2-3 sentences on technical architecture and design decisions"
+  #   - name: "AI Integration"
+  #     instruction: "2-4 sentences on how they use AI/LLMs"
+  #   - name: "Depth & Execution"
+  #     instruction: "2-3 sentences on engineering quality and deployment"
+  #   - name: "Demo Assessment"
+  #     instruction: "1-2 sentences based on the transcript"
+
 # Video analysis provider (Gemini native video upload)
 video_analysis:
   provider: "gemini"
   model: "gemini-3-flash-preview"
   max_video_duration: 300        # trim videos longer than this (seconds)
+
+  # Extra scoring criteria the video analysis should evaluate.
+  # These should be keys from your scoring.criteria section.
+  # The video analysis always scores "demo" by default; list any additional
+  # criteria that benefit from watching the video (e.g. storytelling, presentation).
+  # score_criteria:
+  #   - "storytelling"
+
+# Static analysis pattern detection
+# Presets: "general" (SDK detection only), "ai_hackathon" (AI/LLM focused),
+#          "openenv" (RL environments, HuggingFace, training pipelines)
+# static_analysis:
+#   pattern_preset: "general"
+#   extra_patterns:              # add custom patterns on top of the preset
+#     my_framework:
+#       patterns: ["import my_framework", "from my_framework"]
+#       weight: 3
+#       description: "My custom framework usage"
 
 # Hackathon-specific settings (all optional -- omit this section for generic use)
 # hackathon:
