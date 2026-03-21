@@ -16,6 +16,13 @@ class ScoringCriterionDef:
 
 
 @dataclass
+class ReviewSectionDef:
+    """A narrative section in the code review prompt."""
+    name: str
+    instruction: str
+
+
+@dataclass
 class CodeReviewContext:
     """Everything an LLM needs to review a project's code."""
     project_name: str
@@ -34,6 +41,8 @@ class CodeReviewContext:
     transcript: str = ""
     extra_context: dict[str, str] = field(default_factory=dict)
     scoring_criteria: list[ScoringCriterionDef] = field(default_factory=list)
+    prompt_preamble: str = ""
+    review_sections: list[ReviewSectionDef] = field(default_factory=list)
 
 
 @dataclass
@@ -47,6 +56,13 @@ class CodeReviewResponse:
 
 
 @dataclass
+class VideoScoreCriterionDef:
+    """A criterion the video analysis should score on."""
+    key: str
+    description: str
+
+
+@dataclass
 class VideoReviewContext:
     """Everything needed for video analysis."""
     project_name: str
@@ -55,6 +71,7 @@ class VideoReviewContext:
     description: str
     video_path: Path | None = None
     max_duration: int = 180
+    score_criteria: list[VideoScoreCriterionDef] = field(default_factory=list)
 
 
 @dataclass

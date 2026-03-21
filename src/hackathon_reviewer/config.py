@@ -21,17 +21,31 @@ class ColumnMapping(BaseModel):
     extra: list[str] = Field(default_factory=list)
 
 
+class ReviewSection(BaseModel):
+    """A narrative section in the code review prompt."""
+    name: str
+    instruction: str
+
+
 class CodeReviewConfig(BaseModel):
     provider: str = "anthropic"
     model: str = "claude-opus-4-6"
     max_tokens: int = 2000
     max_source_chars: int = 20000
+    prompt_preamble: str = ""
+    review_sections: list[ReviewSection] = Field(default_factory=list)
 
 
 class VideoAnalysisConfig(BaseModel):
     provider: str = "gemini"
     model: str = "gemini-3-flash-preview"
     max_video_duration: int = 300  # trim videos longer than this (seconds)
+    score_criteria: list[str] = Field(default_factory=list)
+
+
+class StaticAnalysisConfig(BaseModel):
+    pattern_preset: str = "general"  # "general", "ai_hackathon", "openenv"
+    extra_patterns: dict = Field(default_factory=dict)
 
 
 class HackathonConfig(BaseModel):
@@ -64,6 +78,7 @@ class ReviewConfig(BaseModel):
     columns: ColumnMapping = Field(default_factory=ColumnMapping)
     code_review: CodeReviewConfig = Field(default_factory=CodeReviewConfig)
     video_analysis: VideoAnalysisConfig = Field(default_factory=VideoAnalysisConfig)
+    static_analysis: StaticAnalysisConfig = Field(default_factory=StaticAnalysisConfig)
     hackathon: HackathonConfig | None = None
     scoring: ScoringConfig | None = None
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
