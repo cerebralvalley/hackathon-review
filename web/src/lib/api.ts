@@ -74,6 +74,13 @@ export const runs = {
   streamUrl: (runId: string) => `${API_BASE}/api/runs/${runId}/stream`,
 };
 
+// Parse rules
+export const parseRules = (rulesText: string) =>
+  request<Record<string, unknown>>("/api/parse-rules", {
+    method: "POST",
+    body: JSON.stringify({ rules_text: rulesText }),
+  });
+
 // Results
 export const results = {
   leaderboard: (runId: string) =>
