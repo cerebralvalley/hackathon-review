@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.app.config import settings
 from api.app.database import Base, engine
-from api.app.routes import hackathons, results, runs
+from api.app.routes import hackathons, parse_rules, results, runs
 
 
 @asynccontextmanager
@@ -36,6 +39,7 @@ app.add_middleware(
 app.include_router(hackathons.router)
 app.include_router(runs.router)
 app.include_router(results.router)
+app.include_router(parse_rules.router)
 
 
 @app.get("/api/health")
