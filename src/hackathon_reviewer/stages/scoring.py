@@ -155,8 +155,8 @@ def _score_one(
         llm_score = None
         if code_review and code_review.success and crit_name in code_review.scores:
             llm_score = code_review.scores[crit_name].score
-        if crit_name == "demo" and video and video.analysis_success and "demo" in video.scores:
-            llm_score = video.scores["demo"].score
+        if video and video.analysis_success and crit_name in video.scores:
+            llm_score = video.scores[crit_name].score
 
         if llm_score is not None:
             ps.scores[crit_name] = CriterionScore(

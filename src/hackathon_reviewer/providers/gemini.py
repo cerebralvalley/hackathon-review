@@ -13,42 +13,9 @@ from hackathon_reviewer.providers.base import (
     ScoringCriterionDef,
     VideoReviewContext,
     VideoReviewResponse,
+    VideoScoreCriterionDef,
 )
-
-VIDEO_ANALYSIS_PROMPT = """You are reviewing a hackathon demo video. Analyze this video and provide:
-
-1. **Transcript Summary**: A concise summary of what the presenter says and shows (2-3 sentences).
-
-2. **Demo Classification**: Classify the demo as one of:
-   - "broken" — video doesn't play, is corrupted, or shows nothing relevant
-   - "slides_only" — only slides/mockups, no working product shown
-   - "basic_working" — shows a working product but unpolished
-   - "polished" — clean, clear demo with real functionality
-   - "exceptional" — genuinely impressive, makes you want to use the product
-
-3. **Project Relevance**: Is this video actually demonstrating the project described below? (true/false)
-   If the video seems unrelated (e.g., a rickroll, random content, wrong video), mark as false.
-
-4. **Review**: 2-3 sentences assessing the demo quality.
-
-5. **Scores** (1-10 each):
-   - demo: Overall demo quality
-
-**Project being reviewed:**
-- Name: {project_name}
-- Team: {team_name}
-- Description: {description}
-
-Respond with ONLY valid JSON:
-{{"transcript_summary": "...", "demo_classification": "...", "is_related_to_project": true/false, "review": "...", "scores": {{"demo": N}}}}
-"""
-
-DEFAULT_CRITERIA = [
-    ScoringCriterionDef(key="impact", weight=0.25, description="Real-world potential, who benefits, product viability"),
-    ScoringCriterionDef(key="ai_use", weight=0.25, description="Creativity and depth of AI/LLM integration"),
-    ScoringCriterionDef(key="depth", weight=0.20, description="Engineering quality, iteration, craft"),
-    ScoringCriterionDef(key="demo", weight=0.30, description="Demo quality, working product, presentation"),
-]
+from hackathon_reviewer.providers.prompts import DEFAULT_CRITERIA
 
 
 def _build_code_review_prompt(criteria: list[ScoringCriterionDef]) -> str:
@@ -80,6 +47,50 @@ def _build_code_review_prompt(criteria: list[ScoringCriterionDef]) -> str:
 
 Respond with ONLY valid JSON:
 {json_schema}
+"""
+
+
+def _build_video_prompt(
+    ctx: VideoReviewContext,
+) -> str:
+    """Build video analysis prompt with dynamic score criteria."""
+    extra_criteria = ctx.score_criteria
+
+    score_lines = ["   - demo: Overall demo quality"]
+    score_json_parts = ['"demo": N']
+    for sc in extra_criteria:
+        score_lines.append(f"   - {sc.key}: {sc.description}")
+        score_json_parts.append(f'"{sc.key}": N')
+
+    scores_block = "\n".join(score_lines)
+    scores_json = ", ".join(score_json_parts)
+
+    return f"""You are reviewing a hackathon demo video. Analyze this video and provide:
+
+1. **Transcript Summary**: A concise summary of what the presenter says and shows (2-3 sentences).
+
+2. **Demo Classification**: Classify the demo as one of:
+   - "broken" — video doesn't play, is corrupted, or shows nothing relevant
+   - "slides_only" — only slides/mockups, no working product shown
+   - "basic_working" — shows a working product but unpolished
+   - "polished" — clean, clear demo with real functionality
+   - "exceptional" — genuinely impressive, makes you want to use the product
+
+3. **Project Relevance**: Is this video actually demonstrating the project described below? (true/false)
+   If the video seems unrelated (e.g., a rickroll, random content, wrong video), mark as false.
+
+4. **Review**: 2-3 sentences assessing the demo quality.
+
+5. **Scores** (1-10 each):
+{scores_block}
+
+**Project being reviewed:**
+- Name: {ctx.project_name}
+- Team: {ctx.team_name}
+- Description: {ctx.description[:500]}
+
+Respond with ONLY valid JSON:
+{{"transcript_summary": "...", "demo_classification": "...", "is_related_to_project": true/false, "review": "...", "scores": {{{scores_json}}}}}
 """
 
 
@@ -131,11 +142,7 @@ class GeminiProvider(LLMProvider):
         if not ctx.video_path or not ctx.video_path.exists():
             return VideoReviewResponse(success=False, error="video_file_not_found")
 
-        prompt = VIDEO_ANALYSIS_PROMPT.format(
-            project_name=ctx.project_name,
-            team_name=ctx.team_name,
-            description=ctx.description[:500],
-        )
+        prompt = _build_video_prompt(ctx)
 
         try:
             video_file = self.client.files.upload(

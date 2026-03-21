@@ -19,7 +19,7 @@ from hackathon_reviewer.models import (
     VideoAnalysisResult,
     VideoDownloadResult,
 )
-from hackathon_reviewer.providers.base import VideoReviewContext
+from hackathon_reviewer.providers.base import VideoReviewContext, VideoScoreCriterionDef
 from hackathon_reviewer.utils.video_download import prepare_video_for_upload
 
 
@@ -72,6 +72,12 @@ def _analyze_one(
         video_path, max_duration=cfg.video_analysis.max_video_duration,
     )
 
+    video_score_defs = []
+    scoring_criteria = cfg.scoring.criteria if cfg.scoring else {}
+    for key in cfg.video_analysis.score_criteria:
+        desc = scoring_criteria[key].description if key in scoring_criteria else key.replace("_", " ").title()
+        video_score_defs.append(VideoScoreCriterionDef(key=key, description=desc))
+
     ctx = VideoReviewContext(
         project_name=sub.project_name,
         team_name=sub.team_name,
@@ -79,6 +85,7 @@ def _analyze_one(
         description=sub.description,
         video_path=prepared_path,
         max_duration=cfg.video_analysis.max_video_duration,
+        score_criteria=video_score_defs,
     )
 
     resp = provider.review_video(ctx)
