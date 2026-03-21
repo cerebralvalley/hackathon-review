@@ -19,7 +19,7 @@ from hackathon_reviewer.models import (
     StaticAnalysisResult,
     Submission,
 )
-from hackathon_reviewer.providers.base import CodeReviewContext, LLMProvider, ScoringCriterionDef
+from hackathon_reviewer.providers.base import CodeReviewContext, LLMProvider, ReviewSectionDef, ScoringCriterionDef
 from hackathon_reviewer.utils.file_reader import read_key_files
 
 
@@ -89,6 +89,11 @@ def _review_one(
                 key=key, weight=crit.weight, description=crit.description,
             ))
 
+    section_defs = [
+        ReviewSectionDef(name=s.name, instruction=s.instruction)
+        for s in cfg.code_review.review_sections
+    ]
+
     ctx = CodeReviewContext(
         project_name=sub.project_name,
         team_name=sub.team_name,
@@ -106,6 +111,8 @@ def _review_one(
         transcript=transcript,
         extra_context=sub.extra_fields,
         scoring_criteria=criteria_defs,
+        prompt_preamble=cfg.code_review.prompt_preamble,
+        review_sections=section_defs,
     )
 
     resp = provider.review_code(ctx)
