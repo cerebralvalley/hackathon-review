@@ -18,13 +18,28 @@ export interface HackathonListItem {
 export interface PipelineRun {
   id: string;
   hackathon_id: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "interrupted";
   current_stage: string | null;
   stage_progress: Record<string, string>;
+  stage_detail: Record<string, StageDetail>;
   error: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+}
+
+export interface StageFailure {
+  team_number: number;
+  team_name: string;
+  project_name: string;
+  error: string;
+}
+
+export interface StageDetail {
+  done: number;
+  total: number;
+  message?: string;
+  failures?: StageFailure[];
 }
 
 export interface LeaderboardEntry {

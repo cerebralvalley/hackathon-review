@@ -10,10 +10,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
+
 from api.app.database import SessionLocal, get_db
 from api.app.models import Hackathon, PipelineRun
 from api.app.schemas import RunCreate, RunResponse
 from api.app.services.pipeline import execute_pipeline
+from api.app.services.retry import retry_items
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -67,6 +70,38 @@ def create_run(
     return run
 
 
+@router.post("/{run_id}/resume", response_model=RunResponse, summary="Resume an interrupted or failed run")
+def resume_run(
+    run_id: str,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db),
+):
+    run = db.get(PipelineRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if run.status not in ("interrupted", "failed"):
+        raise HTTPException(400, f"Run is '{run.status}', can only resume interrupted or failed runs")
+
+    active = (
+        db.query(PipelineRun)
+        .filter(
+            PipelineRun.hackathon_id == run.hackathon_id,
+            PipelineRun.status.in_(["pending", "running"]),
+        )
+        .first()
+    )
+    if active:
+        raise HTTPException(409, f"Another run is already {active.status}")
+
+    run.status = "running"
+    run.error = None
+    db.commit()
+    db.refresh(run)
+
+    background_tasks.add_task(_run_pipeline_in_thread, run.id, True)
+    return run
+
+
 @router.get("/{run_id}", response_model=RunResponse)
 def get_run(run_id: str, db: Session = Depends(get_db)):
     run = db.get(PipelineRun, run_id)
@@ -94,6 +129,7 @@ async def stream_run(run_id: str):
                     "status": run.status,
                     "current_stage": run.current_stage,
                     "stage_progress": run.stage_progress or {},
+                    "stage_detail": run.stage_detail or {},
                     "error": run.error,
                 })
 
@@ -101,7 +137,7 @@ async def stream_run(run_id: str):
                     yield {"event": "status", "data": payload}
                     prev_payload = payload
 
-                if run.status in ("completed", "failed"):
+                if run.status in ("completed", "failed", "interrupted"):
                     return
             finally:
                 db.close()
@@ -109,6 +145,40 @@ async def stream_run(run_id: str):
             await asyncio.sleep(1)
 
     return EventSourceResponse(event_generator())
+
+
+class RetryRequest(BaseModel):
+    stage: str
+    team_numbers: list[int]
+
+
+@router.post("/{run_id}/retry", summary="Retry specific failed items within a stage")
+def retry_run_items(
+    run_id: str,
+    body: RetryRequest,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db),
+):
+    run = db.get(PipelineRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if run.status in ("pending", "running"):
+        raise HTTPException(400, "Cannot retry while pipeline is running")
+
+    valid_stages = {"clone", "video_download", "code_review", "video_analysis"}
+    if body.stage not in valid_stages:
+        raise HTTPException(400, f"Retry not supported for stage '{body.stage}'. Supported: {valid_stages}")
+
+    background_tasks.add_task(_retry_in_thread, run.id, body.stage, body.team_numbers)
+    return {"status": "retrying", "stage": body.stage, "team_numbers": body.team_numbers}
+
+
+def _retry_in_thread(run_id: str, stage: str, team_numbers: list[int]) -> None:
+    db = SessionLocal()
+    try:
+        retry_items(db, run_id, stage, team_numbers)
+    finally:
+        db.close()
 
 
 @router.get("", response_model=list[RunResponse])

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { hackathons as api } from "@/lib/api";
 import type { HackathonListItem } from "@/lib/types";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -37,16 +36,11 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Your hackathon review pipelines
-          </p>
-        </div>
-        <Link href="/hackathons/new">
-          <Button>New Hackathon</Button>
-        </Link>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+        <p className="text-muted-foreground">
+          Your hackathon review pipelines
+        </p>
       </div>
 
       {loading ? (
@@ -57,8 +51,11 @@ export default function DashboardPage() {
             <p className="text-muted-foreground mb-4">
               No hackathons yet. Create one to get started.
             </p>
-            <Link href="/hackathons/new">
-              <Button>Create your first hackathon</Button>
+            <Link
+              href="/hackathons/new"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Create your first hackathon
             </Link>
           </CardContent>
         </Card>

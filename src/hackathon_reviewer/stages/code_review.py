@@ -142,6 +142,7 @@ def run_code_review(
     repo_metadata: list[RepoMetadata],
     static_results: list[StaticAnalysisResult],
     resume: bool = True,
+    progress: "Any | None" = None,
 ) -> list[CodeReviewResult]:
     """Run LLM code review on all submissions in parallel, save to JSON."""
     workers = cfg.concurrency.llm_concurrent_requests
@@ -186,6 +187,9 @@ def run_code_review(
         static = static_by_team[sub.team_number]
         return sub.team_number, _review_one(provider, sub, meta, static, cfg)
 
+    total_submissions = len(submissions)
+    skipped = total_submissions - len(work)
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_do_one, sub): sub.team_number for sub in work}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Code review"):
@@ -195,6 +199,12 @@ def run_code_review(
                 total_input_tokens += result.input_tokens
                 total_output_tokens += result.output_tokens
             completed += 1
+            if not result.success and progress:
+                sub = next((s for s in work if s.team_number == team_num), None)
+                if sub:
+                    progress.add_failure(team_num, sub.team_name, sub.project_name, result.error or "unknown")
+            if progress:
+                progress.update(skipped + completed, total_submissions, "")
             if completed % 10 == 0:
                 with _save_lock:
                     _save_results_map(results_map, submissions, out_path)

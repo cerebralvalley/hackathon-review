@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import shutil
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -108,26 +107,3 @@ async def upload_csv(hackathon_id: str, file: UploadFile, db: Session = Depends(
     return h
 
 
-@router.get("/{hackathon_id}/csv-headers")
-def get_csv_headers(hackathon_id: str, db: Session = Depends(get_db)):
-    """Return column headers from the uploaded CSV for mapping UI."""
-    h = db.get(Hackathon, hackathon_id)
-    if not h:
-        raise HTTPException(404, "Hackathon not found")
-    if not h.csv_filename:
-        raise HTTPException(400, "No CSV uploaded")
-
-    csv_file = storage.csv_path(hackathon_id, h.csv_filename)
-    if not csv_file.exists():
-        raise HTTPException(404, "CSV file not found on disk")
-
-    with open(csv_file, "r", encoding="utf-8") as f:
-        for line in f:
-            stripped = line.strip().rstrip(",")
-            if not stripped or "," not in stripped:
-                continue
-            reader = csv.reader([line])
-            headers = next(reader)
-            return {"headers": [h.strip() for h in headers if h.strip()]}
-
-    return {"headers": []}

@@ -22,10 +22,16 @@ from hackathon_reviewer.utils.video_download import (
 )
 
 
+MAX_DOWNLOAD_RETRIES = 2
+RETRY_DELAY = 3
+
+
 def _download_one(
     sub: Submission, cfg: ReviewConfig
 ) -> tuple[int, VideoDownloadResult]:
-    """Download a single video. Returns (team_number, result) for thread-safe collection."""
+    """Download a single video with auto-retry. Returns (team_number, result)."""
+    import time
+
     result = VideoDownloadResult()
     video = sub.video
 
@@ -45,22 +51,33 @@ def _download_one(
     video_path.parent.mkdir(parents=True, exist_ok=True)
     url = video.original
 
-    if video.platform == VideoPlatform.GOOGLE_DRIVE:
-        success, error = download_gdown(url, video_path)
-        if not success:
+    last_error = None
+    for attempt in range(1 + MAX_DOWNLOAD_RETRIES):
+        if attempt > 0:
+            video_path.unlink(missing_ok=True)
+            time.sleep(RETRY_DELAY * attempt)
+
+        if video.platform == VideoPlatform.GOOGLE_DRIVE:
+            success, error = download_gdown(url, video_path)
+            if not success:
+                success, error = download_ytdlp(url, video_path)
+            result.method = "gdown+yt-dlp"
+        else:
             success, error = download_ytdlp(url, video_path)
-        result.method = "gdown+yt-dlp"
-    else:
-        success, error = download_ytdlp(url, video_path)
-        result.method = "yt-dlp"
+            result.method = "yt-dlp"
 
-    result.success = success
-    result.error = error
+        if success:
+            result.success = True
+            result.error = None
+            if video_path.exists():
+                result.file_path = str(video_path)
+                result.duration_seconds = round(get_video_duration(video_path), 1)
+            return sub.team_number, result
 
-    if success and video_path.exists():
-        result.file_path = str(video_path)
-        result.duration_seconds = round(get_video_duration(video_path), 1)
+        last_error = error
 
+    result.success = False
+    result.error = last_error
     return sub.team_number, result
 
 
@@ -73,6 +90,7 @@ def run_video_download(
     cfg: ReviewConfig,
     submissions: list[Submission],
     resume: bool = True,
+    progress: "Any | None" = None,
 ) -> dict[int, VideoDownloadResult]:
     """Download all demo videos in parallel, save results to JSON."""
     click.echo("\n--- Stage 3: Download Videos ---")
@@ -85,6 +103,7 @@ def run_video_download(
         existing = _load_downloads_file(out_path)
         click.echo(f"  Resuming: {len(existing)} already processed")
 
+    sub_by_team = {s.team_number: s for s in submissions}
     results: dict[int, VideoDownloadResult] = {}
     work: list[Submission] = []
 
@@ -93,6 +112,9 @@ def run_video_download(
             results[sub.team_number] = existing[sub.team_number]
         else:
             work.append(sub)
+
+    total = len(submissions)
+    done = total - len(work)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
@@ -103,6 +125,12 @@ def run_video_download(
         ):
             team_num, result = future.result()
             results[team_num] = result
+            done += 1
+            if not result.success and progress:
+                sub = sub_by_team[team_num]
+                progress.add_failure(team_num, sub.team_name, sub.project_name, result.error or "unknown")
+            if progress:
+                progress.update(done, total, "")
 
     downloaded = sum(1 for r in results.values() if r.success)
     click.echo(f"  Downloaded: {downloaded}/{len(results)}")

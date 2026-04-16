@@ -59,6 +59,7 @@ class PipelineRun(Base):
     status = Column(String, nullable=False, default="pending")  # pending | running | completed | failed
     current_stage = Column(String, nullable=True)
     stage_progress = Column(JSON, nullable=False, default=dict)
+    stage_detail = Column(JSON, nullable=False, default=dict)
     error = Column(Text, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)

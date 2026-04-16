@@ -7,12 +7,16 @@ import type {
   Flag,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "1",
+      ...init?.headers,
+    },
   });
   if (!res.ok) {
     const body = await res.text();
@@ -49,13 +53,12 @@ export const hackathons = {
     const res = await fetch(`${API_BASE}/api/hackathons/${id}/csv`, {
       method: "POST",
       body: form,
+      headers: { "ngrok-skip-browser-warning": "1" },
     });
     if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
     return res.json() as Promise<Hackathon>;
   },
 
-  csvHeaders: (id: string) =>
-    request<{ headers: string[] }>(`/api/hackathons/${id}/csv-headers`),
 };
 
 // Pipeline runs
@@ -69,6 +72,15 @@ export const runs = {
     request<PipelineRun>(`/api/runs?hackathon_id=${hackathonId}`, {
       method: "POST",
       body: JSON.stringify({ resume }),
+    }),
+
+  resume: (runId: string) =>
+    request<PipelineRun>(`/api/runs/${runId}/resume`, { method: "POST" }),
+
+  retry: (runId: string, stage: string, teamNumbers: number[]) =>
+    request<{ status: string }>(`/api/runs/${runId}/retry`, {
+      method: "POST",
+      body: JSON.stringify({ stage, team_numbers: teamNumbers }),
     }),
 
   streamUrl: (runId: string) => `${API_BASE}/api/runs/${runId}/stream`,

@@ -463,6 +463,7 @@ def run_static_analysis(
     cfg: ReviewConfig,
     submissions: list[Submission],
     repo_metadata: list[RepoMetadata],
+    progress: "Any | None" = None,
 ) -> list[StaticAnalysisResult]:
     """Run static analysis on all repos, save to JSON."""
     click.echo("\n--- Stage 4: Static Analysis ---")
@@ -470,14 +471,17 @@ def run_static_analysis(
     click.echo(f"  Pattern preset: {cfg.static_analysis.pattern_preset} ({len(active_patterns)} patterns)")
 
     meta_by_team = {m.team_number: m for m in repo_metadata}
+    total = len(submissions)
     results: list[StaticAnalysisResult] = []
 
-    for sub in tqdm(submissions, desc="Static analysis"):
+    for i, sub in enumerate(tqdm(submissions, desc="Static analysis"), 1):
         meta = meta_by_team.get(sub.team_number, RepoMetadata(
             team_number=sub.team_number, team_name=sub.team_name,
             project_name=sub.project_name, sanitized_name=sub.sanitized_name,
         ))
         results.append(_process_one(sub, meta, cfg, active_patterns))
+        if progress:
+            progress.update(i, total, sub.project_name)
 
     depths = {}
     for r in results:

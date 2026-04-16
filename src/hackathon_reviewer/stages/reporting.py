@@ -393,6 +393,7 @@ def run_reporting(
     code_reviews: list[CodeReviewResult],
     video_results: list[VideoAnalysisResult],
     scores: list[ProjectScore],
+    progress: "Any | None" = None,
 ) -> None:
     """Generate all reports."""
     click.echo("\n--- Stage 8: Report Generation ---")
@@ -403,6 +404,9 @@ def run_reporting(
     video_map = {v.team_number: v for v in video_results}
     score_map = {s.team_number: s for s in scores}
 
+    total = len(submissions) + 2
+    done = 0
+
     # Collect flags
     flags = _collect_flags(submissions, repo_metadata, video_results, cfg)
 
@@ -410,12 +414,18 @@ def run_reporting(
     flags_path = cfg.reports_dir / "flags.md"
     _write_flags_report(flags, flags_path)
     click.echo(f"  Flags report: {flags_path} ({len(flags)} flags)")
+    done += 1
+    if progress:
+        progress.update(done, total, "Flags report")
 
     # Leaderboard
     if scores:
         lb_path = cfg.reports_dir / "leaderboard.csv"
         _write_leaderboard(scores, submissions, repo_metadata, static_results, lb_path)
         click.echo(f"  Leaderboard: {lb_path}")
+    done += 1
+    if progress:
+        progress.update(done, total, "Leaderboard")
 
     # Per-project reports
     projects_dir = cfg.reports_dir / "projects"
@@ -432,6 +442,9 @@ def run_reporting(
             flags,
             report_path,
         )
+        done += 1
+        if progress:
+            progress.update(done, total, sub.project_name)
     click.echo(f"  Project reports: {projects_dir}/ ({len(submissions)} files)")
 
     # Summary

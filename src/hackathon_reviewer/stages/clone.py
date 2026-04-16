@@ -22,6 +22,8 @@ from hackathon_reviewer.models import (
 from hackathon_reviewer.utils.git import is_valid_repo, run_git
 
 CLONE_TIMEOUT = 120
+MAX_CLONE_RETRIES = 2
+RETRY_DELAY = 3
 
 SKIP_DIRS = {
     "node_modules", ".git", "vendor", "venv", ".venv", "__pycache__",
@@ -54,19 +56,31 @@ LOCK_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", 
 # ---------------------------------------------------------------------------
 
 def _clone_repo(clone_url: str, dest_dir: Path) -> tuple[bool, str | None]:
+    import shutil
+    import time
+
     dest_dir = dest_dir.resolve()
     if dest_dir.exists() and is_valid_repo(dest_dir):
         return True, None
 
     dest_dir.parent.mkdir(parents=True, exist_ok=True)
-    rc, _, stderr = run_git(
-        ["clone", clone_url, str(dest_dir)],
-        str(dest_dir.parent),
-        timeout=CLONE_TIMEOUT,
-    )
-    if rc == 0:
-        return True, None
-    return False, (stderr.strip()[:200] if stderr else "unknown_error")
+    last_error = None
+    for attempt in range(1 + MAX_CLONE_RETRIES):
+        if attempt > 0:
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir, ignore_errors=True)
+            time.sleep(RETRY_DELAY * attempt)
+
+        rc, _, stderr = run_git(
+            ["clone", clone_url, str(dest_dir)],
+            str(dest_dir.parent),
+            timeout=CLONE_TIMEOUT,
+        )
+        if rc == 0:
+            return True, None
+        last_error = stderr.strip()[:200] if stderr else "unknown_error"
+
+    return False, last_error
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +237,12 @@ def _process_one(sub: Submission, cfg: ReviewConfig) -> RepoMetadata:
 # Stage entry points
 # ---------------------------------------------------------------------------
 
-def run_clone(cfg: ReviewConfig, submissions: list[Submission], resume: bool = True) -> list[RepoMetadata]:
+def run_clone(
+    cfg: ReviewConfig,
+    submissions: list[Submission],
+    resume: bool = True,
+    progress: "Any | None" = None,
+) -> list[RepoMetadata]:
     """Clone all repos, extract metadata, save to JSON."""
     click.echo("\n--- Stage 2: Clone Repositories ---")
 
@@ -233,12 +252,18 @@ def run_clone(cfg: ReviewConfig, submissions: list[Submission], resume: bool = T
         existing = {m.team_number: m for m in _load_metadata_file(out_path)}
         click.echo(f"  Resuming: {len(existing)} already processed")
 
+    total = len(submissions)
     results: list[RepoMetadata] = []
-    for sub in tqdm(submissions, desc="Cloning repos"):
+    for i, sub in enumerate(tqdm(submissions, desc="Cloning repos"), 1):
         if resume and sub.team_number in existing and existing[sub.team_number].clone_success:
             results.append(existing[sub.team_number])
         else:
-            results.append(_process_one(sub, cfg))
+            meta = _process_one(sub, cfg)
+            results.append(meta)
+            if not meta.clone_success and progress:
+                progress.add_failure(sub.team_number, sub.team_name, sub.project_name, meta.clone_error or "unknown")
+        if progress:
+            progress.update(i, total, sub.project_name)
 
     cloned = sum(1 for r in results if r.clone_success)
     click.echo(f"  Cloned: {cloned}/{len(results)}")

@@ -199,6 +199,7 @@ def run_scoring(
     static_results: list[StaticAnalysisResult],
     code_reviews: list[CodeReviewResult],
     video_results: list[VideoAnalysisResult],
+    progress: "Any | None" = None,
 ) -> list[ProjectScore]:
     """Score all submissions and save to JSON."""
     click.echo("\n--- Stage 7: Scoring ---")
@@ -212,8 +213,9 @@ def run_scoring(
     review_map = {r.team_number: r for r in code_reviews}
     video_map = {v.team_number: v for v in video_results}
 
+    total = len(submissions)
     scores: list[ProjectScore] = []
-    for sub in tqdm(submissions, desc="Scoring"):
+    for i, sub in enumerate(tqdm(submissions, desc="Scoring"), 1):
         s = _score_one(
             sub,
             meta_map.get(sub.team_number),
@@ -223,6 +225,8 @@ def run_scoring(
             cfg,
         )
         scores.append(s)
+        if progress:
+            progress.update(i, total, sub.project_name)
 
     scores.sort(key=lambda s: s.weighted_total, reverse=True)
 

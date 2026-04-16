@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import traceback
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +14,41 @@ from api.app import models as db_models
 from api.app.services import storage
 
 logger = logging.getLogger(__name__)
+
+class StageProgress:
+    """Accumulates progress and failures for a single stage, flushing to the DB."""
+
+    def __init__(self, stage: str, db: "Session", run: "db_models.PipelineRun"):
+        self._stage = stage
+        self._db = db
+        self._run = run
+        self.done = 0
+        self.total = 0
+        self.failures: list[dict] = []
+
+    def update(self, done: int, total: int, message: str = "") -> None:
+        self.done = done
+        self.total = total
+        self._flush(message)
+
+    def add_failure(self, team_number: int, team_name: str, project_name: str, error: str) -> None:
+        self.failures.append({
+            "team_number": team_number,
+            "team_name": team_name,
+            "project_name": project_name,
+            "error": error,
+        })
+        self._flush()
+
+    def _flush(self, message: str = "") -> None:
+        detail = dict(self._run.stage_detail or {})
+        detail[self._stage] = {
+            "done": self.done,
+            "total": self.total,
+            "message": message,
+            "failures": self.failures,
+        }
+        _update_run(self._db, self._run, stage_detail=detail)
 
 STAGE_ORDER = [
     "parse",
@@ -69,11 +105,19 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
         _update_run(db, run, status="failed", error="No CSV uploaded")
         return
 
+    existing_progress = run.stage_progress or {}
+    stage_progress = {}
+    for s in STAGE_ORDER:
+        if existing_progress.get(s) == "completed":
+            stage_progress[s] = "completed"
+        else:
+            stage_progress[s] = "pending"
+
     _update_run(
         db, run,
         status="running",
-        started_at=datetime.now(timezone.utc),
-        stage_progress={s: "pending" for s in STAGE_ORDER},
+        started_at=run.started_at or datetime.now(timezone.utc),
+        stage_progress=stage_progress,
     )
 
     try:
@@ -104,14 +148,19 @@ def _run_stages(
     cfg: "ReviewConfig",
     resume: bool,
 ) -> None:
-    from hackathon_reviewer.stages.parse import run_parse
-    from hackathon_reviewer.stages.clone import run_clone
-    from hackathon_reviewer.stages.video import run_video_download
-    from hackathon_reviewer.stages.static_analysis import run_static_analysis
-    from hackathon_reviewer.stages.code_review import run_code_review
-    from hackathon_reviewer.stages.video_analysis import run_video_analysis
-    from hackathon_reviewer.stages.scoring import run_scoring
+    from hackathon_reviewer.stages.parse import run_parse, load_submissions
+    from hackathon_reviewer.stages.clone import run_clone, load_repo_metadata
+    from hackathon_reviewer.stages.video import run_video_download, load_video_downloads
+    from hackathon_reviewer.stages.static_analysis import run_static_analysis, load_static_analysis
+    from hackathon_reviewer.stages.code_review import run_code_review, load_code_reviews
+    from hackathon_reviewer.stages.video_analysis import run_video_analysis, load_video_analysis
+    from hackathon_reviewer.stages.scoring import run_scoring, load_scores
     from hackathon_reviewer.stages.reporting import run_reporting
+
+    prior = run.stage_progress or {}
+
+    def _done(stage: str) -> bool:
+        return prior.get(stage) == "completed"
 
     def _mark(stage: str, status: str) -> None:
         progress = dict(run.stage_progress or {})
@@ -121,44 +170,75 @@ def _run_stages(
             updates["current_stage"] = stage
         _update_run(db, run, **updates)
 
+    def _progress(stage: str) -> StageProgress:
+        return StageProgress(stage, db, run)
+
     # Stage 1: Parse
-    _mark("parse", "running")
-    submissions = run_parse(cfg)
-    _mark("parse", "completed")
+    if _done("parse"):
+        logger.info("Skipping parse (already completed)")
+        submissions = load_submissions(cfg)
+    else:
+        _mark("parse", "running")
+        submissions = run_parse(cfg)
+        _mark("parse", "completed")
 
     # Stage 2: Clone
-    _mark("clone", "running")
-    repo_metadata = run_clone(cfg, submissions, resume=resume)
-    _mark("clone", "completed")
+    if _done("clone"):
+        logger.info("Skipping clone (already completed)")
+        repo_metadata = load_repo_metadata(cfg)
+    else:
+        _mark("clone", "running")
+        repo_metadata = run_clone(cfg, submissions, resume=resume, progress=_progress("clone"))
+        _mark("clone", "completed")
 
     # Stage 3: Video download
-    _mark("video_download", "running")
-    video_downloads = run_video_download(cfg, submissions, resume=resume)
-    _mark("video_download", "completed")
+    if _done("video_download"):
+        logger.info("Skipping video_download (already completed)")
+        video_downloads = load_video_downloads(cfg)
+    else:
+        _mark("video_download", "running")
+        video_downloads = run_video_download(cfg, submissions, resume=resume, progress=_progress("video_download"))
+        _mark("video_download", "completed")
 
     # Stage 4: Static analysis
-    _mark("static_analysis", "running")
-    static_results = run_static_analysis(cfg, submissions, repo_metadata)
-    _mark("static_analysis", "completed")
+    if _done("static_analysis"):
+        logger.info("Skipping static_analysis (already completed)")
+        static_results = load_static_analysis(cfg)
+    else:
+        _mark("static_analysis", "running")
+        static_results = run_static_analysis(cfg, submissions, repo_metadata, progress=_progress("static_analysis"))
+        _mark("static_analysis", "completed")
 
     # Stage 5: Code review
-    _mark("code_review", "running")
-    code_reviews = run_code_review(cfg, submissions, repo_metadata, static_results, resume=resume)
-    _mark("code_review", "completed")
+    if _done("code_review"):
+        logger.info("Skipping code_review (already completed)")
+        code_reviews = load_code_reviews(cfg)
+    else:
+        _mark("code_review", "running")
+        code_reviews = run_code_review(cfg, submissions, repo_metadata, static_results, resume=resume, progress=_progress("code_review"))
+        _mark("code_review", "completed")
 
     # Stage 6: Video analysis
-    _mark("video_analysis", "running")
-    video_results = run_video_analysis(cfg, submissions, video_downloads, resume=resume)
-    _mark("video_analysis", "completed")
+    if _done("video_analysis"):
+        logger.info("Skipping video_analysis (already completed)")
+        video_results = load_video_analysis(cfg)
+    else:
+        _mark("video_analysis", "running")
+        video_results = run_video_analysis(cfg, submissions, video_downloads, resume=resume, progress=_progress("video_analysis"))
+        _mark("video_analysis", "completed")
 
     # Stage 7: Scoring
-    _mark("scoring", "running")
-    scores = run_scoring(cfg, submissions, repo_metadata, static_results, code_reviews, video_results)
-    _mark("scoring", "completed")
+    if _done("scoring"):
+        logger.info("Skipping scoring (already completed)")
+        scores = load_scores(cfg)
+    else:
+        _mark("scoring", "running")
+        scores = run_scoring(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, progress=_progress("scoring"))
+        _mark("scoring", "completed")
 
-    # Stage 8: Reporting
+    # Stage 8: Reporting (always re-run to pick up any changes)
     _mark("reporting", "running")
-    run_reporting(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, scores)
+    run_reporting(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, scores, progress=_progress("reporting"))
     _mark("reporting", "completed")
 
     _update_run(

@@ -57,6 +57,7 @@ class RunResponse(BaseModel):
     status: str
     current_stage: str | None
     stage_progress: dict[str, Any]
+    stage_detail: dict[str, Any] = Field(default_factory=dict)
     error: str | None
     started_at: datetime | None
     completed_at: datetime | None

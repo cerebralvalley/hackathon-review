@@ -18,7 +18,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { PipelineProgress } from "@/components/pipeline-progress";
-import { ColumnMapper } from "@/components/column-mapper";
 
 export default function HackathonDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -170,28 +169,6 @@ export default function HackathonDetailPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Column mapping (shown after CSV upload if no mapping set) */}
-      {hackathon.csv_filename &&
-        !(hackathon.config as Record<string, unknown>)?.columns && (
-          <ColumnMapper
-            hackathonId={id}
-            currentConfig={hackathon.config}
-            onSave={async (newConfig) => {
-              const updated = await hackathonsApi.update(id, {
-                config: newConfig,
-              });
-              setHackathon(updated);
-            }}
-            onSkip={() => {
-              setHackathon((prev) =>
-                prev
-                  ? { ...prev, config: { ...prev.config, columns: "skipped" } }
-                  : prev
-              );
-            }}
-          />
-        )}
 
       {/* Run pipeline */}
       <Card>

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
-import { ThemeToggle } from "@/components/theme-toggle";
 import "./globals.css";
 
 const inter = Inter({
@@ -27,16 +26,8 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
-      suppressHydrationWarning
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
     >
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("theme");var d=t==="dark"||(t==null&&matchMedia("(prefers-color-scheme:dark)").matches);if(d)document.documentElement.classList.add("dark")}catch(e){}})()`,
-          }}
-        />
-      </head>
       <body className="min-h-full flex flex-col font-sans">
         <header className="border-b bg-background sticky top-0 z-50">
           <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-6">
@@ -47,15 +38,17 @@ export default function RootLayout({
               <Link href="/" className="hover:text-foreground transition-colors">
                 Dashboard
               </Link>
-              <Link
-                href="/hackathons/new"
-                className="hover:text-foreground transition-colors"
-              >
-                New Hackathon
+              <Link href="/about" className="hover:text-foreground transition-colors">
+                About
               </Link>
             </nav>
             <div className="ml-auto">
-              <ThemeToggle />
+              <Link
+                href="/hackathons/new"
+                className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                + New Hackathon
+              </Link>
             </div>
           </div>
         </header>

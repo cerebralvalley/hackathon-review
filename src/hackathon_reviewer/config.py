@@ -76,6 +76,13 @@ class ConcurrencyConfig(BaseModel):
 class ReviewConfig(BaseModel):
     """Top-level configuration for the pipeline."""
     columns: ColumnMapping = Field(default_factory=ColumnMapping)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_columns(cls, values: Any) -> Any:
+        if isinstance(values, dict) and not isinstance(values.get("columns"), (dict, type(None))):
+            values.pop("columns", None)
+        return values
     code_review: CodeReviewConfig = Field(default_factory=CodeReviewConfig)
     video_analysis: VideoAnalysisConfig = Field(default_factory=VideoAnalysisConfig)
     static_analysis: StaticAnalysisConfig = Field(default_factory=StaticAnalysisConfig)

@@ -119,6 +119,7 @@ def run_video_analysis(
     submissions: list[Submission],
     video_downloads: dict[int, VideoDownloadResult],
     resume: bool = True,
+    progress: "Any | None" = None,
 ) -> list[VideoAnalysisResult]:
     """Run Gemini video analysis on all downloaded videos in parallel."""
     click.echo("\n--- Stage 6: Video Analysis ---")
@@ -151,12 +152,21 @@ def run_video_analysis(
         download = video_downloads.get(sub.team_number, VideoDownloadResult())
         return sub.team_number, _analyze_one(provider, sub, download, cfg)
 
+    total_submissions = len(submissions)
+    skipped = total_submissions - len(work)
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_do_one, sub): sub.team_number for sub in work}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Video analysis"):
             team_num, result = future.result()
             results_map[team_num] = result
             completed += 1
+            if not result.analysis_success and progress:
+                sub = next((s for s in work if s.team_number == team_num), None)
+                if sub:
+                    progress.add_failure(team_num, sub.team_name, sub.project_name, result.analysis_error or "unknown")
+            if progress:
+                progress.update(skipped + completed, total_submissions, "")
             if completed % 10 == 0:
                 with _save_lock:
                     _save_analysis_map(results_map, submissions, out_path)
