@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   hackathons as hackathonsApi,
+  results as resultsApi,
   runs as runsApi,
 } from "@/lib/api";
-import type { Hackathon, PipelineRun } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import type { Flag, Hackathon, LeaderboardEntry, PipelineRun } from "@/lib/types";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -17,6 +20,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/ui/tabs";
 import { PipelineProgress } from "@/components/pipeline-progress";
 
 export default function HackathonDetailPage() {
@@ -97,7 +114,8 @@ export default function HackathonDetailPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
@@ -132,28 +150,74 @@ export default function HackathonDetailPage() {
         </div>
       </div>
 
-      {/* CSV upload */}
+      {/* Results — primary view */}
+      <ResultsSection
+        hackathonId={id}
+        latestCompletedRun={latestCompletedRun ?? null}
+        hasActiveRun={hasActiveRun}
+      />
+
+      <Separator />
+
+      {/* Setup & Pipeline — secondary */}
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">
+          Setup &amp; Pipeline
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Configure inputs and run the review pipeline
+        </p>
+      </div>
+
+      {/* Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Configuration</CardTitle>
+          <CardDescription>
+            Scoring rubric, code review prompt, and parsing rules
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <details className="text-sm">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground inline-flex items-center gap-2">
+              View raw JSON
+            </summary>
+            <pre className="mt-3 p-3 rounded-md bg-muted text-xs overflow-auto max-h-96">
+              {JSON.stringify(hackathon.config, null, 2)}
+            </pre>
+          </details>
+        </CardContent>
+      </Card>
+
+      {/* Submissions CSV */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Submissions CSV</CardTitle>
           <CardDescription>
-            Upload the CSV file containing hackathon submissions
+            The CSV file containing hackathon submissions
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {hackathon.csv_filename ? (
-            <div className="flex items-center gap-3">
-              <Badge variant="outline">{hackathon.csv_filename}</Badge>
-              <label className="text-sm text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
-                Replace
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={handleUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
+            <>
+              <div className="flex items-center gap-3">
+                <Badge variant="outline" title={hackathon.csv_filename}>
+                  <span className="truncate max-w-[400px]">
+                    {hackathon.csv_filename}
+                  </span>
+                </Badge>
+                <label className="text-sm text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+                  {uploading ? "Uploading..." : "Replace"}
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <CsvPreview hackathonId={id} csvFilename={hackathon.csv_filename} />
+            </>
           ) : (
             <label className="inline-flex items-center gap-2 cursor-pointer">
               <span className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors">
@@ -170,7 +234,7 @@ export default function HackathonDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Run pipeline */}
+      {/* Pipeline — trigger only */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Pipeline</CardTitle>
@@ -178,7 +242,7 @@ export default function HackathonDetailPage() {
             Run the full review pipeline on the uploaded CSV
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent>
           <Button
             onClick={handleTrigger}
             disabled={
@@ -191,37 +255,15 @@ export default function HackathonDetailPage() {
                 ? "Pipeline running..."
                 : "Run Pipeline"}
           </Button>
-
-          {latestCompletedRun && (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  router.push(`/hackathons/${id}/runs/${latestCompletedRun.id}/leaderboard`)
-                }
-              >
-                View Leaderboard
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  router.push(`/hackathons/${id}/runs/${latestCompletedRun.id}/flags`)
-                }
-              >
-                View Flags
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
 
       {/* Runs */}
       {pipelineRuns.length > 0 && (
-        <>
-          <Separator />
-          <h2 className="text-lg font-semibold">Runs</h2>
+        <div>
+          <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
+            Run history
+          </h3>
           <div className="space-y-4">
             {pipelineRuns.map((run) => (
               <Card key={run.id}>
@@ -241,19 +283,366 @@ export default function HackathonDetailPage() {
               </Card>
             ))}
           </div>
-        </>
+        </div>
       )}
+    </div>
+  );
+}
 
-      {/* Config preview */}
-      <Separator />
-      <details className="text-sm">
-        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-          View Configuration
-        </summary>
-        <pre className="mt-2 p-3 rounded-md bg-muted text-xs overflow-auto">
-          {JSON.stringify(hackathon.config, null, 2)}
-        </pre>
-      </details>
+// ---------------------------------------------------------------------------
+// Results section
+// ---------------------------------------------------------------------------
+
+function ResultsSection({
+  hackathonId,
+  latestCompletedRun,
+  hasActiveRun,
+}: {
+  hackathonId: string;
+  latestCompletedRun: PipelineRun | null;
+  hasActiveRun: boolean;
+}) {
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
+  const [flags, setFlags] = useState<Flag[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!latestCompletedRun) {
+      setLeaderboard(null);
+      setFlags(null);
+      return;
+    }
+    setLoading(true);
+    Promise.all([
+      resultsApi.leaderboard(latestCompletedRun.id),
+      resultsApi.flags(latestCompletedRun.id),
+    ])
+      .then(([lb, fl]) => {
+        setLeaderboard(lb);
+        setFlags(fl);
+      })
+      .finally(() => setLoading(false));
+  }, [latestCompletedRun?.id]);
+
+  if (!latestCompletedRun) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Results</CardTitle>
+          <CardDescription>
+            Leaderboard and flags from the latest completed pipeline run
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            {hasActiveRun
+              ? "Pipeline running — results will appear here when it completes."
+              : "No completed runs yet. Run the pipeline below to see results."}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const runId = latestCompletedRun.id;
+  const errorCount = (flags ?? []).filter((f) => f.severity === "error").length;
+  const warningCount = (flags ?? []).filter(
+    (f) => f.severity === "warning"
+  ).length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-lg">Results</CardTitle>
+            <CardDescription>
+              From run{" "}
+              <span className="font-mono">{runId.slice(0, 8)}</span> ·{" "}
+              {latestCompletedRun.completed_at
+                ? new Date(latestCompletedRun.completed_at).toLocaleString()
+                : "—"}
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <a
+              href={runsApi.videosZipUrl(runId)}
+              download={`videos-${runId.slice(0, 8)}.zip`}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+            >
+              Download videos (.zip)
+            </a>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="leaderboard">
+          <div className="flex items-center justify-between gap-4">
+            <TabsList>
+              <TabsTrigger value="leaderboard">
+                Leaderboard
+                {leaderboard && (
+                  <span className="ml-1.5 text-xs text-muted-foreground">
+                    {leaderboard.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="flags">
+                Flags
+                {flags && (
+                  <span className="ml-1.5 text-xs text-muted-foreground">
+                    {flags.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+            <div className="flex gap-2">
+              <Link
+                href={`/hackathons/${hackathonId}/runs/${runId}/leaderboard`}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Full leaderboard →
+              </Link>
+              <Link
+                href={`/hackathons/${hackathonId}/runs/${runId}/flags`}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Full flags →
+              </Link>
+            </div>
+          </div>
+
+          <TabsContent value="leaderboard" className="mt-4">
+            {loading ? (
+              <p className="text-sm text-muted-foreground py-6">Loading...</p>
+            ) : !leaderboard || leaderboard.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6">
+                No leaderboard entries (scoring stage may not have run).
+              </p>
+            ) : (
+              <LeaderboardTable
+                entries={leaderboard}
+                hackathonId={hackathonId}
+                runId={runId}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="flags" className="mt-4">
+            {loading ? (
+              <p className="text-sm text-muted-foreground py-6">Loading...</p>
+            ) : !flags || flags.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6">
+                No flags raised — every submission is clean.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-3 mb-3 text-xs">
+                  {errorCount > 0 && (
+                    <span className="text-destructive">
+                      {errorCount} error{errorCount === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  {warningCount > 0 && (
+                    <span className="text-yellow-600 dark:text-yellow-500">
+                      {warningCount} warning{warningCount === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+                <FlagsList flags={flags} />
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LeaderboardTable({
+  entries,
+  hackathonId,
+  runId,
+}: {
+  entries: LeaderboardEntry[];
+  hackathonId: string;
+  runId: string;
+}) {
+  const criteriaKeys = entries[0] ? Object.keys(entries[0].scores) : [];
+  return (
+    <div className="rounded-md border overflow-auto max-h-[480px]">
+      <Table>
+        <TableHeader className="sticky top-0 bg-background">
+          <TableRow>
+            <TableHead className="w-12">#</TableHead>
+            <TableHead>Team</TableHead>
+            <TableHead>Project</TableHead>
+            <TableHead className="text-right">Score</TableHead>
+            {criteriaKeys.map((k) => (
+              <TableHead key={k} className="text-right text-xs">
+                {k.replace(/_/g, " ")}
+              </TableHead>
+            ))}
+            <TableHead className="text-right">LOC</TableHead>
+            <TableHead>Lang</TableHead>
+            <TableHead>Depth</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {entries.map((e) => (
+            <TableRow
+              key={e.team_number}
+              className="cursor-pointer"
+              onClick={() =>
+                window.location.assign(
+                  `/hackathons/${hackathonId}/runs/${runId}/projects/${e.team_number}`
+                )
+              }
+            >
+              <TableCell className="font-medium">{e.rank}</TableCell>
+              <TableCell className="max-w-[150px] truncate">
+                {e.team_name}
+              </TableCell>
+              <TableCell className="max-w-[180px] truncate">
+                {e.project_name}
+              </TableCell>
+              <TableCell className="text-right font-semibold">
+                {e.weighted_total.toFixed(1)}
+              </TableCell>
+              {criteriaKeys.map((k) => (
+                <TableCell key={k} className="text-right tabular-nums">
+                  {e.scores[k]?.toFixed(1) ?? "-"}
+                </TableCell>
+              ))}
+              <TableCell className="text-right tabular-nums">
+                {e.total_loc.toLocaleString()}
+              </TableCell>
+              <TableCell>{e.primary_language}</TableCell>
+              <TableCell>
+                <Badge variant="outline" className="text-xs">
+                  {e.integration_depth}
+                </Badge>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function FlagsList({ flags }: { flags: Flag[] }) {
+  return (
+    <div className="rounded-md border divide-y max-h-[480px] overflow-auto">
+      {flags.map((f, i) => (
+        <div key={i} className="flex items-start gap-3 p-3 text-sm">
+          <Badge
+            variant={
+              f.severity === "error"
+                ? "destructive"
+                : f.severity === "warning"
+                  ? "secondary"
+                  : "outline"
+            }
+            className="mt-0.5 shrink-0"
+          >
+            {f.severity}
+          </Badge>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-xs text-muted-foreground">
+                #{f.team_number}
+              </span>
+              <span className="font-medium truncate">
+                {f.project_name || f.team_name}
+              </span>
+              <Badge variant="outline" className="text-xs">
+                {f.flag_type}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {f.description}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CSV preview
+// ---------------------------------------------------------------------------
+
+function CsvPreview({
+  hackathonId,
+  csvFilename,
+}: {
+  hackathonId: string;
+  csvFilename: string;
+}) {
+  const [data, setData] = useState<{
+    headers: string[];
+    rows: string[][];
+    total_rows: number;
+    preview_limit: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    hackathonsApi
+      .csvPreview(hackathonId, 10)
+      .then(setData)
+      .catch((err) => setError(String(err)))
+      .finally(() => setLoading(false));
+  }, [hackathonId, csvFilename]);
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Loading preview...</p>;
+  }
+  if (error) {
+    return <p className="text-sm text-destructive">Preview failed: {error}</p>;
+  }
+  if (!data || data.headers.length === 0) {
+    return <p className="text-sm text-muted-foreground">CSV is empty.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-muted-foreground">
+        Showing first {data.rows.length} of {data.total_rows} rows
+      </div>
+      <div className="rounded-md border overflow-auto max-h-[320px]">
+        <Table>
+          <TableHeader className="sticky top-0 bg-background">
+            <TableRow>
+              {data.headers.map((h, i) => (
+                <TableHead key={i} className="whitespace-nowrap text-xs">
+                  {h}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.rows.map((row, i) => (
+              <TableRow key={i}>
+                {row.map((cell, j) => (
+                  <TableCell
+                    key={j}
+                    className="text-xs max-w-[280px] truncate"
+                    title={cell}
+                  >
+                    {cell}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

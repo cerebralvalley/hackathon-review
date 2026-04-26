@@ -59,6 +59,14 @@ export const hackathons = {
     return res.json() as Promise<Hackathon>;
   },
 
+  csvPreview: (id: string, limit = 10) =>
+    request<{
+      filename: string;
+      headers: string[];
+      rows: string[][];
+      total_rows: number;
+      preview_limit: number;
+    }>(`/api/hackathons/${id}/csv/preview?limit=${limit}`),
 };
 
 // Pipeline runs
@@ -84,6 +92,8 @@ export const runs = {
     }),
 
   streamUrl: (runId: string) => `${API_BASE}/api/runs/${runId}/stream`,
+
+  videosZipUrl: (runId: string) => `${API_BASE}/api/runs/${runId}/videos.zip`,
 };
 
 // Parse rules

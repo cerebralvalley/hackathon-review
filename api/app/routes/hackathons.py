@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import shutil
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from api.app.database import get_db
@@ -105,5 +106,45 @@ async def upload_csv(hackathon_id: str, file: UploadFile, db: Session = Depends(
     db.commit()
     db.refresh(h)
     return h
+
+
+@router.get("/{hackathon_id}/csv/preview")
+def preview_csv(
+    hackathon_id: str,
+    limit: int = Query(default=10, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Return the first N rows of the uploaded CSV for inline preview."""
+    h = db.get(Hackathon, hackathon_id)
+    if not h:
+        raise HTTPException(404, "Hackathon not found")
+    if not h.csv_filename:
+        raise HTTPException(404, "No CSV uploaded")
+
+    path = storage.csv_path(hackathon_id, h.csv_filename)
+    if not path.exists():
+        raise HTTPException(404, "CSV file missing on disk")
+
+    headers: list[str] = []
+    rows: list[list[str]] = []
+    total_rows = 0
+    with open(path, "r", encoding="utf-8", newline="", errors="replace") as f:
+        reader = csv.reader(f)
+        try:
+            headers = next(reader)
+        except StopIteration:
+            headers = []
+        for row in reader:
+            total_rows += 1
+            if len(rows) < limit:
+                rows.append(row)
+
+    return {
+        "filename": h.csv_filename,
+        "headers": headers,
+        "rows": rows,
+        "total_rows": total_rows,
+        "preview_limit": limit,
+    }
 
 

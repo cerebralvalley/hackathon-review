@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import tempfile
+import zipfile
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from pydantic import BaseModel
 
 from api.app.database import SessionLocal, get_db
 from api.app.models import Hackathon, PipelineRun
 from api.app.schemas import RunCreate, RunResponse
+from api.app.services import storage
 from api.app.services.pipeline import execute_pipeline
 from api.app.services.retry import retry_items
 
@@ -179,6 +185,38 @@ def _retry_in_thread(run_id: str, stage: str, team_numbers: list[int]) -> None:
         retry_items(db, run_id, stage, team_numbers)
     finally:
         db.close()
+
+
+@router.get("/{run_id}/videos.zip", summary="Download all downloaded videos as a zip")
+def download_videos_zip(run_id: str, db: Session = Depends(get_db)):
+    run = db.get(PipelineRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+
+    videos_dir = storage.run_videos_dir(run.hackathon_id, run.id)
+    if not videos_dir.exists():
+        raise HTTPException(404, "No videos directory for this run")
+
+    files = sorted(p for p in videos_dir.iterdir() if p.is_file())
+    if not files:
+        raise HTTPException(404, "No videos to download")
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_STORED) as zf:
+            for path in files:
+                zf.write(path, arcname=path.name)
+    except Exception:
+        os.unlink(tmp.name)
+        raise
+
+    return FileResponse(
+        tmp.name,
+        media_type="application/zip",
+        filename=f"videos-{run.id[:8]}.zip",
+        background=BackgroundTask(os.unlink, tmp.name),
+    )
 
 
 @router.get("", response_model=list[RunResponse])
