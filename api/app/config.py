@@ -8,13 +8,16 @@ from pathlib import Path
 
 class Settings:
     @property
-    def database_url(self) -> str:
-        return os.environ.get("DATABASE_URL", "sqlite:///./hackathon_review.db")
+    def data_root(self) -> Path:
+        """Root directory for all hackathon run data (CSVs, outputs, SQLite DB)."""
+        return Path(os.environ.get("DATA_ROOT", "./data")).resolve()
 
     @property
-    def data_root(self) -> Path:
-        """Root directory for all hackathon run data (CSVs, outputs)."""
-        return Path(os.environ.get("DATA_ROOT", "./data")).resolve()
+    def database_url(self) -> str:
+        env = os.environ.get("DATABASE_URL")
+        if env:
+            return env
+        return f"sqlite:///{self.data_root / 'hackathon_review.db'}"
 
     @property
     def cors_origins(self) -> list[str]:

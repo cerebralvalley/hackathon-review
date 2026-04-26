@@ -51,10 +51,10 @@ def _recover_interrupted_runs() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.data_root.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _run_migrations()
     _recover_interrupted_runs()
-    settings.data_root.mkdir(parents=True, exist_ok=True)
     yield
 
 

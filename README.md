@@ -124,7 +124,7 @@ The web app is a self-hosted FastAPI + Next.js stack on top of the same pipeline
 ### What it adds over the CLI
 
 - A web UI for creating/editing hackathons, uploading CSVs, kicking off runs
-- Persistent SQLite database (`hackathon_review.db`) — multiple hackathons, multiple runs each
+- Persistent SQLite database — multiple hackathons, multiple runs each
 - Live stage-by-stage progress for in-flight runs
 - Browse leaderboards, per-project reports, and flags in the browser
 - Paste-in rules text → auto-converted to `config.yaml` via LLM (no YAML editing required)
@@ -168,15 +168,17 @@ Then open **http://localhost:3000**.
 
 | What | Where |
 |------|-------|
-| Hackathons, runs, stage progress | SQLite DB at `./hackathon_review.db` (override with `DATABASE_URL`) |
+| Hackathons, runs, stage progress | SQLite DB at `./data/hackathon_review.db` (override with `DATABASE_URL`) |
 | Uploaded CSVs, cloned repos, downloaded videos, output reports | `./data/<hackathon_id>/runs/<run_id>/` (override with `DATA_ROOT`) |
+
+Both default to `./data/`, so a single `rm -rf data/` resets the entire app to a clean slate.
 
 ### Configuration
 
 | Env var | Default | Purpose |
 |---------|---------|---------|
-| `DATABASE_URL` | `sqlite:///./hackathon_review.db` | Any SQLAlchemy URL |
-| `DATA_ROOT` | `./data` | Where uploaded files and run outputs are stored |
+| `DATABASE_URL` | `sqlite:///./data/hackathon_review.db` | Any SQLAlchemy URL. Defaults to a SQLite file inside `DATA_ROOT`. |
+| `DATA_ROOT` | `./data` | Where the SQLite DB, uploaded files, and run outputs are stored |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated list of allowed frontend origins |
 | `NEXT_PUBLIC_API_URL` (frontend) | empty | URL of the FastAPI backend |
 
