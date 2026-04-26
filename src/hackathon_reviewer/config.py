@@ -57,6 +57,15 @@ class HackathonConfig(BaseModel):
     end_date: str | None = None
     verify_git_period: bool = False
 
+    # Team-size enforcement (used by the contributor check)
+    # If max_team_size is set, repos with more human contributors than the
+    # cap are flagged. Independently, if a CSV submission lists N members,
+    # repos with > N + contributor_tolerance human contributors are flagged.
+    max_team_size: int | None = None
+    contributor_tolerance: int = 0
+    # Names/emails substrings to treat as bots (in addition to built-in list).
+    extra_bot_authors: list[str] = Field(default_factory=list)
+
 
 class ScoringCriterion(BaseModel):
     weight: float

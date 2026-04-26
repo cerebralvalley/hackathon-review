@@ -155,6 +155,10 @@ def get_flags(run_id: str, db: Session = Depends(get_db)):
     repo_meta = {m["team_number"]: m for m in _load_json(data / "repo_metadata.json")}
     video_results = {v["team_number"]: v for v in _load_json(data / "video_analysis.json")}
 
+    hackathon_cfg = (run.hackathon.config or {}).get("hackathon", {}) if run.hackathon else {}
+    max_team_size = hackathon_cfg.get("max_team_size")
+    tolerance = int(hackathon_cfg.get("contributor_tolerance", 0) or 0)
+
     flags: list[FlagResponse] = []
 
     for sub in submissions:
@@ -226,5 +230,33 @@ def get_flags(run_id: str, db: Session = Depends(get_db)):
                 description="Repository has only a single commit",
                 severity="info",
             ))
+
+        # Contributor count check.
+        contributor_count = git_history.get("human_contributor_count")
+        if isinstance(contributor_count, int) and contributor_count > 0:
+            listed_members = len(sub.get("members", []))
+            limits: list[int] = []
+            if listed_members > 0:
+                limits.append(listed_members + tolerance)
+            if isinstance(max_team_size, int) and max_team_size > 0:
+                limits.append(max_team_size)
+            if limits:
+                cap = min(limits)
+                if contributor_count > cap:
+                    contributors = git_history.get("contributors", [])
+                    names = ", ".join(
+                        c.get("name") or c.get("email", "?") for c in contributors[:6]
+                    )
+                    if len(contributors) > 6:
+                        names += f", +{len(contributors) - 6} more"
+                    flags.append(FlagResponse(
+                        team_number=tn, team_name=team, project_name=project,
+                        flag_type="excessive_contributors",
+                        description=(
+                            f"{contributor_count} contributors (cap {cap}, "
+                            f"{listed_members} listed): {names}"
+                        ),
+                        severity="warning",
+                    ))
 
     return flags

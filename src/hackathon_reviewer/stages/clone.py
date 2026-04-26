@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from hackathon_reviewer.config import ReviewConfig
 from hackathon_reviewer.models import (
+    Contributor,
     GitHistory,
     HackathonPeriodFlag,
     RepoFiles,
@@ -142,38 +143,181 @@ def _scan_repo_files(repo_dir: Path) -> RepoFiles:
 # Git history analysis
 # ---------------------------------------------------------------------------
 
+# Built-in bot / non-human-author detection. Matched as case-insensitive
+# substrings against both author email and name. AI coding assistants are
+# treated as bots here because they're tools used *by* the team, not
+# teammates: counting them as contributors would inflate team size.
+# Hackathon configs can extend via `extra_bot_authors`.
+_BUILTIN_BOT_PATTERNS = (
+    # Generic CI / app integrations
+    "[bot]",
+    "dependabot",
+    "renovate",
+    "github-actions",
+    "noreply@github.com",
+    "vercel",
+    "netlify",
+    # AI coding assistants
+    "claude-code",
+    "noreply@anthropic.com",
+    "copilot",
+    "github-copilot",
+    "cursor-agent",
+    "noreply@cursor.so",
+    "noreply@openai.com",
+    "devin-ai",
+    "bolt.new",
+    "lovable.dev",
+    "v0.dev",
+)
+
+# Co-authored-by trailer (RFC 5322-ish "Name <email>"). GitHub credits these
+# as contributors on the repo, so we count them too.
+_COAUTHOR_RE = re.compile(
+    r"^Co-authored-by:\s*(?P<name>.+?)\s*<(?P<email>[^>]+)>",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _is_bot_identity(name: str, email: str, extra_patterns: list[str]) -> bool:
+    haystack = f"{name} {email}".lower()
+    for pat in (*_BUILTIN_BOT_PATTERNS, *extra_patterns):
+        if pat and pat.lower() in haystack:
+            return True
+    return False
+
+
+def _identity_key(name: str, email: str) -> str:
+    """Canonical key for grouping a person's commits across machines.
+
+    Prefers the email (lowercased) since it's the most stable identifier git
+    captures. Falls back to the display name if email is absent or is a
+    GitHub `<id+username>@users.noreply.github.com` placeholder, in which
+    case the username portion is used instead.
+    """
+    e = (email or "").strip().lower()
+    if e.endswith("@users.noreply.github.com"):
+        # 12345+username@... → username
+        local = e.split("@", 1)[0]
+        if "+" in local:
+            local = local.split("+", 1)[1]
+        return f"gh:{local}"
+    if e:
+        return f"email:{e}"
+    return f"name:{(name or '').strip().lower()}"
+
+
 def _analyze_git_history(repo_dir: Path, cfg: ReviewConfig) -> GitHistory:
     history = GitHistory()
     if not repo_dir.exists():
         return history
 
-    rc, stdout, _ = run_git(["log", "--format=%H|%aI|%an|%s", "--all"], str(repo_dir))
+    # Use NUL-delimited commits with a record separator so commit messages
+    # (which may contain newlines and pipes) don't break parsing. Trailing
+    # \x1e separates commits, \x1f separates fields within a commit.
+    rc, stdout, _ = run_git(
+        ["log", "--all", "--pretty=format:%H%x1f%aI%x1f%aN%x1f%aE%x1f%B%x1e"],
+        str(repo_dir),
+    )
     if rc != 0 or not stdout.strip():
         return history
 
+    extra_bots = list(getattr(cfg.hackathon, "extra_bot_authors", []) or []) if cfg.hackathon else []
+
     commits = []
-    authors: set[str] = set()
-    for line in stdout.strip().split("\n"):
-        parts = line.split("|", 3)
-        if len(parts) >= 4:
-            commit_hash, date_str, author, message = parts
-            try:
-                dt = datetime.fromisoformat(date_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                commits.append({"hash": commit_hash, "date": dt, "author": author, "message": message})
-                authors.add(author)
-            except ValueError:
-                pass
+    contributors: dict[str, Contributor] = {}
+    bot_identities: set[str] = set()
+    raw_author_names: set[str] = set()
+
+    for raw in stdout.split("\x1e"):
+        rec = raw.strip()
+        if not rec:
+            continue
+        parts = rec.split("\x1f")
+        if len(parts) < 5:
+            continue
+        commit_hash, date_str, author_name, author_email, body = parts
+        try:
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            continue
+
+        commits.append({"hash": commit_hash, "date": dt, "author": author_name, "message": body})
+        raw_author_names.add(author_name)
+
+        # Primary author
+        is_bot = _is_bot_identity(author_name, author_email, extra_bots)
+        key = _identity_key(author_name, author_email)
+        if is_bot:
+            bot_identities.add(author_name or author_email)
+        else:
+            c = contributors.get(key)
+            if c is None:
+                contributors[key] = Contributor(
+                    name=author_name, email=author_email, commits=1
+                )
+            else:
+                c.commits += 1
+                # Keep the longest seen name as the canonical display name.
+                if len(author_name) > len(c.name):
+                    c.name = author_name
+
+        # Co-authored-by trailers in the commit body
+        for m in _COAUTHOR_RE.finditer(body or ""):
+            co_name = m.group("name")
+            co_email = m.group("email")
+            if _is_bot_identity(co_name, co_email, extra_bots):
+                bot_identities.add(co_name)
+                continue
+            ck = _identity_key(co_name, co_email)
+            if ck == key:
+                # Author co-credited themselves; ignore.
+                continue
+            c = contributors.get(ck)
+            if c is None:
+                contributors[ck] = Contributor(
+                    name=co_name, email=co_email, coauthored=1
+                )
+            else:
+                c.coauthored += 1
 
     if not commits:
         return history
 
     commits.sort(key=lambda c: c["date"])
 
+    # Second-pass dedup: people frequently commit under both their personal
+    # email and GitHub's `<id>+username@users.noreply.github.com` form, which
+    # have different identity keys. Merge any contributors whose normalized
+    # display name matches another and whose commits would otherwise be split.
+    def _norm_name(s: str) -> str:
+        return " ".join(s.lower().split())
+
+    merged: dict[str, Contributor] = {}
+    by_name: dict[str, Contributor] = {}
+    for c in contributors.values():
+        nname = _norm_name(c.name)
+        existing = by_name.get(nname) if nname else None
+        if existing is not None:
+            existing.commits += c.commits
+            existing.coauthored += c.coauthored
+            if not existing.email and c.email:
+                existing.email = c.email
+        else:
+            by_name[nname] = c
+            merged[id(c)] = c
+
     history.total_commits = len(commits)
     history.first_commit_date = commits[0]["date"].isoformat()
     history.last_commit_date = commits[-1]["date"].isoformat()
-    history.commit_authors = list(authors)
+    history.commit_authors = sorted(raw_author_names)
     history.is_single_commit_dump = len(commits) == 1
+    history.contributors = sorted(
+        merged.values(),
+        key=lambda c: (-c.commits, -c.coauthored, c.name.lower()),
+    )
+    history.bot_authors = sorted(bot_identities)
+    history.human_contributor_count = len(merged)
 
     # Hackathon period verification (only if configured)
     if cfg.hackathon and cfg.hackathon.verify_git_period and cfg.hackathon.start_date and cfg.hackathon.end_date:

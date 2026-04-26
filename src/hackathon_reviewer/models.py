@@ -107,6 +107,15 @@ class Submission(BaseModel):
 # Repo metadata (from cloning + git analysis)
 # ---------------------------------------------------------------------------
 
+class Contributor(BaseModel):
+    """A single contributor identified from git history (author or co-author)."""
+    name: str
+    email: str = ""
+    commits: int = 0           # commits where they were the primary author
+    coauthored: int = 0        # commits where they appeared in a Co-authored-by trailer
+    is_bot: bool = False
+
+
 class GitHistory(BaseModel):
     first_commit_date: str | None = None
     last_commit_date: str | None = None
@@ -118,6 +127,10 @@ class GitHistory(BaseModel):
     is_fork: bool = False
     is_single_commit_dump: bool = False
     commit_authors: list[str] = Field(default_factory=list)
+    # Contributor analysis (humans only — bots are tracked separately)
+    contributors: list[Contributor] = Field(default_factory=list)
+    bot_authors: list[str] = Field(default_factory=list)
+    human_contributor_count: int = 0
 
 
 class RepoFiles(BaseModel):
