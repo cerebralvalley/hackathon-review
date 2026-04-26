@@ -59,14 +59,15 @@ export const hackathons = {
     return res.json() as Promise<Hackathon>;
   },
 
-  csvPreview: (id: string, limit = 10) =>
+  csvPreview: (id: string, offset = 0, limit = 10) =>
     request<{
       filename: string;
       headers: string[];
       rows: string[][];
       total_rows: number;
-      preview_limit: number;
-    }>(`/api/hackathons/${id}/csv/preview?limit=${limit}`),
+      offset: number;
+      limit: number;
+    }>(`/api/hackathons/${id}/csv/preview?offset=${offset}&limit=${limit}`),
 };
 
 // Pipeline runs

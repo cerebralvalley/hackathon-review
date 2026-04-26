@@ -377,42 +377,35 @@ function ResultsSection({
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="leaderboard">
-          <div className="flex items-center justify-between gap-4">
-            <TabsList>
-              <TabsTrigger value="leaderboard">
-                Leaderboard
-                {leaderboard && (
-                  <span className="ml-1.5 text-xs text-muted-foreground">
-                    {leaderboard.length}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="flags">
-                Flags
-                {flags && (
-                  <span className="ml-1.5 text-xs text-muted-foreground">
-                    {flags.length}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-            <div className="flex gap-2">
-              <Link
-                href={`/hackathons/${hackathonId}/runs/${runId}/leaderboard`}
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                Full leaderboard →
-              </Link>
-              <Link
-                href={`/hackathons/${hackathonId}/runs/${runId}/flags`}
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                Full flags →
-              </Link>
-            </div>
-          </div>
+          <TabsList>
+            <TabsTrigger value="leaderboard">
+              Leaderboard
+              {leaderboard && (
+                <span className="ml-1.5 text-xs text-muted-foreground">
+                  {leaderboard.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="flags">
+              Flags
+              {flags && (
+                <span className="ml-1.5 text-xs text-muted-foreground">
+                  {flags.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
           <TabsContent value="leaderboard" className="mt-4">
+            <Link
+              href={`/hackathons/${hackathonId}/leaderboard`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "mb-3"
+              )}
+            >
+              View full leaderboard →
+            </Link>
             {loading ? (
               <p className="text-sm text-muted-foreground py-6">Loading...</p>
             ) : !leaderboard || leaderboard.length === 0 ? (
@@ -429,6 +422,15 @@ function ResultsSection({
           </TabsContent>
 
           <TabsContent value="flags" className="mt-4">
+            <Link
+              href={`/hackathons/${hackathonId}/flags`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "mb-3"
+              )}
+            >
+              View full flags →
+            </Link>
             {loading ? (
               <p className="text-sm text-muted-foreground py-6">Loading...</p>
             ) : !flags || flags.length === 0 ? (
@@ -574,6 +576,8 @@ function FlagsList({ flags }: { flags: Flag[] }) {
 // CSV preview
 // ---------------------------------------------------------------------------
 
+const CSV_PAGE_SIZE = 10;
+
 function CsvPreview({
   hackathonId,
   csvFilename,
@@ -585,35 +589,45 @@ function CsvPreview({
     headers: string[];
     rows: string[][];
     total_rows: number;
-    preview_limit: number;
+    offset: number;
+    limit: number;
   } | null>(null);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPage(0);
+  }, [hackathonId, csvFilename]);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     hackathonsApi
-      .csvPreview(hackathonId, 10)
+      .csvPreview(hackathonId, page * CSV_PAGE_SIZE, CSV_PAGE_SIZE)
       .then(setData)
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
-  }, [hackathonId, csvFilename]);
+  }, [hackathonId, csvFilename, page]);
 
-  if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading preview...</p>;
-  }
   if (error) {
     return <p className="text-sm text-destructive">Preview failed: {error}</p>;
+  }
+  if (!data && loading) {
+    return <p className="text-sm text-muted-foreground">Loading preview...</p>;
   }
   if (!data || data.headers.length === 0) {
     return <p className="text-sm text-muted-foreground">CSV is empty.</p>;
   }
 
+  const totalPages = Math.max(1, Math.ceil(data.total_rows / CSV_PAGE_SIZE));
+  const firstRow = data.total_rows === 0 ? 0 : data.offset + 1;
+  const lastRow = data.offset + data.rows.length;
+
   return (
     <div className="space-y-2">
       <div className="text-xs text-muted-foreground">
-        Showing first {data.rows.length} of {data.total_rows} rows
+        Showing rows {firstRow}–{lastRow} of {data.total_rows}
       </div>
       <div className="rounded-md border overflow-auto max-h-[320px]">
         <Table>
@@ -642,6 +656,27 @@ function CsvPreview({
             ))}
           </TableBody>
         </Table>
+      </div>
+      <div className="flex items-center justify-between pt-1">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+          disabled={page === 0 || loading}
+        >
+          ← Prev
+        </Button>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          Page {page + 1} of {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+          disabled={page >= totalPages - 1 || loading}
+        >
+          Next →
+        </Button>
       </div>
     </div>
   );

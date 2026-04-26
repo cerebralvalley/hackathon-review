@@ -112,9 +112,10 @@ async def upload_csv(hackathon_id: str, file: UploadFile, db: Session = Depends(
 def preview_csv(
     hackathon_id: str,
     limit: int = Query(default=10, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """Return the first N rows of the uploaded CSV for inline preview."""
+    """Return a slice of the uploaded CSV for paginated preview."""
     h = db.get(Hackathon, hackathon_id)
     if not h:
         raise HTTPException(404, "Hackathon not found")
@@ -128,15 +129,16 @@ def preview_csv(
     headers: list[str] = []
     rows: list[list[str]] = []
     total_rows = 0
+    end = offset + limit
     with open(path, "r", encoding="utf-8", newline="", errors="replace") as f:
         reader = csv.reader(f)
         try:
             headers = next(reader)
         except StopIteration:
             headers = []
-        for row in reader:
+        for i, row in enumerate(reader):
             total_rows += 1
-            if len(rows) < limit:
+            if offset <= i < end:
                 rows.append(row)
 
     return {
@@ -144,7 +146,8 @@ def preview_csv(
         "headers": headers,
         "rows": rows,
         "total_rows": total_rows,
-        "preview_limit": limit,
+        "offset": offset,
+        "limit": limit,
     }
 
 

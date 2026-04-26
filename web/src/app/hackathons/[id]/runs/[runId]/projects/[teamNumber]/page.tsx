@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { results as api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -114,19 +115,19 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{projectName}</h1>
-          <p className="text-muted-foreground text-sm">
-            Team #{teamNumber}: {teamName}
-          </p>
-        </div>
-        <Link
-          href={`/hackathons/${id}/runs/${runId}/leaderboard`}
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
-          Back to leaderboard
-        </Link>
+      <Link
+        href={`/hackathons/${id}/leaderboard`}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        Back to leaderboard
+      </Link>
+
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">{projectName}</h1>
+        <p className="text-muted-foreground text-sm">
+          Team #{teamNumber}: {teamName}
+        </p>
       </div>
 
       {/* Score summary */}

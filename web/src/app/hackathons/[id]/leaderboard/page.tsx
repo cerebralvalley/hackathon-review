@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { results as api } from "@/lib/api";
-import type { LeaderboardEntry } from "@/lib/types";
+import { results as resultsApi, runs as runsApi } from "@/lib/api";
+import type { LeaderboardEntry, PipelineRun } from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -54,17 +54,33 @@ function exportCsv(entries: LeaderboardEntry[], criteriaKeys: string[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function LeaderboardPage() {
-  const { id, runId } = useParams<{ id: string; runId: string }>();
+export default function HackathonLeaderboardPage() {
+  const { id } = useParams<{ id: string }>();
+  const [run, setRun] = useState<PipelineRun | null>(null);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.leaderboard(runId).then(setEntries).finally(() => setLoading(false));
-  }, [runId]);
+    setLoading(true);
+    setError(null);
+    runsApi
+      .list(id)
+      .then((runs) => {
+        const latest = runs.find((r) => r.status === "completed");
+        if (!latest) {
+          setRun(null);
+          setEntries([]);
+          return;
+        }
+        setRun(latest);
+        return resultsApi.leaderboard(latest.id).then(setEntries);
+      })
+      .catch((err) => setError(String(err)))
+      .finally(() => setLoading(false));
+  }, [id]);
 
-  const criteriaKeys =
-    entries.length > 0 ? Object.keys(entries[0].scores) : [];
+  const criteriaKeys = entries.length > 0 ? Object.keys(entries[0].scores) : [];
 
   return (
     <div className="space-y-6">
@@ -79,9 +95,14 @@ export default function LeaderboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Leaderboard</h1>
-          <p className="text-muted-foreground text-sm">
-            Run <span className="font-mono">{runId.slice(0, 8)}</span>
-          </p>
+          {run && (
+            <p className="text-muted-foreground text-sm">
+              From run <span className="font-mono">{run.id.slice(0, 8)}</span>
+              {run.completed_at && (
+                <> · {new Date(run.completed_at).toLocaleString()}</>
+              )}
+            </p>
+          )}
         </div>
         {entries.length > 0 && (
           <Button
@@ -96,6 +117,12 @@ export default function LeaderboardPage() {
 
       {loading ? (
         <p className="text-muted-foreground">Loading...</p>
+      ) : error ? (
+        <p className="text-destructive">{error}</p>
+      ) : !run ? (
+        <p className="text-muted-foreground">
+          No completed runs yet. Run the pipeline first.
+        </p>
       ) : entries.length === 0 ? (
         <p className="text-muted-foreground">
           No scores yet. The pipeline may not have completed the scoring stage.
@@ -126,7 +153,7 @@ export default function LeaderboardPage() {
                   className="cursor-pointer"
                   onClick={() =>
                     window.location.assign(
-                      `/hackathons/${id}/runs/${runId}/projects/${e.team_number}`
+                      `/hackathons/${id}/runs/${run.id}/projects/${e.team_number}`
                     )
                   }
                 >
