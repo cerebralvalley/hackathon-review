@@ -75,9 +75,15 @@ export default function DashboardPage() {
                     })}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex items-center gap-2">
+                <CardContent className="flex flex-wrap items-center gap-2">
                   {h.csv_filename ? (
-                    <Badge variant="outline">{h.csv_filename}</Badge>
+                    <Badge
+                      variant="outline"
+                      className="max-w-full shrink min-w-0"
+                      title={h.csv_filename}
+                    >
+                      <span className="truncate">{h.csv_filename}</span>
+                    </Badge>
                   ) : (
                     <Badge variant="outline">No CSV</Badge>
                   )}
