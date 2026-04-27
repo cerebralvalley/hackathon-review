@@ -94,6 +94,9 @@ export const runs = {
   resume: (runId: string) =>
     request<PipelineRun>(`/api/runs/${runId}/resume`, { method: "POST" }),
 
+  stop: (runId: string) =>
+    request<PipelineRun>(`/api/runs/${runId}/stop`, { method: "POST" }),
+
   retry: (runId: string, stage: string, teamNumbers: number[]) =>
     request<{ status: string }>(`/api/runs/${runId}/retry`, {
       method: "POST",

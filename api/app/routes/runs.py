@@ -101,10 +101,29 @@ def resume_run(
 
     run.status = "running"
     run.error = None
+    run.cancel_requested = False
     db.commit()
     db.refresh(run)
 
     background_tasks.add_task(_run_pipeline_in_thread, run.id, True)
+    return run
+
+
+@router.post("/{run_id}/stop", response_model=RunResponse, summary="Request a graceful stop of a running pipeline")
+def stop_run(run_id: str, db: Session = Depends(get_db)):
+    """Set the cancel flag. The worker thread checks it on every per-team
+    progress update and aborts within ~one team's processing time.
+    Already-completed work is preserved; the run becomes 'interrupted' and
+    can be resumed later.
+    """
+    run = db.get(PipelineRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if run.status not in ("pending", "running"):
+        raise HTTPException(400, f"Run is '{run.status}', not running")
+    run.cancel_requested = True
+    db.commit()
+    db.refresh(run)
     return run
 
 
@@ -137,6 +156,7 @@ async def stream_run(run_id: str):
                     "stage_progress": run.stage_progress or {},
                     "stage_detail": run.stage_detail or {},
                     "error": run.error,
+                    "cancel_requested": bool(run.cancel_requested),
                 })
 
                 if payload != prev_payload:

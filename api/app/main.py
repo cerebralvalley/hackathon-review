@@ -32,6 +32,9 @@ def _run_migrations() -> None:
         if "dismissed_flags" not in columns:
             conn.execute(sqlalchemy.text("ALTER TABLE pipeline_runs ADD COLUMN dismissed_flags JSON NOT NULL DEFAULT '[]'"))
             conn.commit()
+        if "cancel_requested" not in columns:
+            conn.execute(sqlalchemy.text("ALTER TABLE pipeline_runs ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT 0"))
+            conn.commit()
 
 
 def _recover_interrupted_runs() -> None:

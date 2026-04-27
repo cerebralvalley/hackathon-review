@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     DateTime,
     Enum,
@@ -68,5 +69,9 @@ class PipelineRun(Base):
     # as not-a-big-deal. The flags endpoint still returns the flag but with
     # `dismissed: true` so audit history is preserved.
     dismissed_flags = Column(JSON, nullable=False, default=list)
+    # Cooperative cancel signal — POST /stop sets this to True. The pipeline
+    # worker checks it on every per-team progress update and raises to abort.
+    # Reset to False whenever a run starts or resumes.
+    cancel_requested = Column(Boolean, nullable=False, default=False)
 
     hackathon = relationship("Hackathon", back_populates="runs")

@@ -16,8 +16,19 @@ from api.app.services.log_capture import capture_stage
 
 logger = logging.getLogger(__name__)
 
+
+class PipelineCancelled(Exception):
+    """Raised cooperatively when the user clicks Stop on a running pipeline."""
+
+
 class StageProgress:
-    """Accumulates progress and failures for a single stage, flushing to the DB."""
+    """Accumulates progress and failures for a single stage, flushing to the DB.
+
+    `update`/`add_failure` are the natural cancel-check points — they're called
+    once per team in the long stages (clone, video_download, code_review,
+    video_analysis), so a stop request takes effect within ~one team's worth
+    of latency.
+    """
 
     def __init__(self, stage: str, db: "Session", run: "db_models.PipelineRun"):
         self._stage = stage
@@ -31,6 +42,7 @@ class StageProgress:
         self.done = done
         self.total = total
         self._flush(message)
+        self._check_cancel()
 
     def add_failure(self, team_number: int, team_name: str, project_name: str, error: str) -> None:
         self.failures.append({
@@ -40,6 +52,13 @@ class StageProgress:
             "error": error,
         })
         self._flush()
+        self._check_cancel()
+
+    def _check_cancel(self) -> None:
+        # Re-read the row so we see updates from the request thread.
+        self._db.refresh(self._run)
+        if self._run.cancel_requested:
+            raise PipelineCancelled()
 
     def _flush(self, message: str = "") -> None:
         detail = dict(self._run.stage_detail or {})
@@ -127,6 +146,7 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
         status="running",
         started_at=run.started_at or datetime.now(timezone.utc),
         stage_progress=stage_progress,
+        cancel_requested=False,
     )
 
     try:
@@ -137,6 +157,18 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
 
     try:
         _run_stages(db, run, cfg, resume)
+    except PipelineCancelled:
+        logger.info("Pipeline cancelled by user for run %s", run_id)
+        progress = dict(run.stage_progress or {})
+        if run.current_stage and progress.get(run.current_stage) == "running":
+            progress[run.current_stage] = "interrupted"
+        _update_run(
+            db, run,
+            status="interrupted",
+            stage_progress=progress,
+            completed_at=datetime.now(timezone.utc),
+            cancel_requested=False,
+        )
     except Exception as exc:
         logger.exception("Pipeline failed for run %s", run_id)
         progress = dict(run.stage_progress or {})

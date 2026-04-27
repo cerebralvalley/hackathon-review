@@ -62,6 +62,7 @@ class RunResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    cancel_requested: bool = False
 
     model_config = {"from_attributes": True}
 

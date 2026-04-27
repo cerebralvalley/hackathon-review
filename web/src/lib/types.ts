@@ -26,6 +26,7 @@ export interface PipelineRun {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  cancel_requested?: boolean;
 }
 
 export interface StageFailure {

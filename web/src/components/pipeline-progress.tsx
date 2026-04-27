@@ -260,6 +260,27 @@ export function PipelineProgress({ run: initialRun, onUpdate }: Props) {
     }
   }
 
+  const [stopping, setStopping] = useState(false);
+  async function handleStop() {
+    if (
+      !confirm(
+        "Stop this pipeline run? In-progress work for the current team will finish, then the run halts and is marked 'interrupted'. You can resume later."
+      )
+    ) {
+      return;
+    }
+    setStopping(true);
+    try {
+      const updated = await api.stop(run.id);
+      setRun((prev) => ({ ...prev, ...updated }));
+      onUpdate?.({ ...run, ...updated });
+    } catch (err) {
+      alert(String(err));
+    } finally {
+      setStopping(false);
+    }
+  }
+
   function refreshRun() {
     api.get(run.id).then((updated) => {
       setRun((prev) => ({ ...prev, ...updated }));
@@ -290,13 +311,33 @@ export function PipelineProgress({ run: initialRun, onUpdate }: Props) {
         >
           {run.status}
         </Badge>
+        {pipelineActive && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleStop}
+            disabled={stopping || run.cancel_requested}
+            className="ml-auto h-7 text-xs text-destructive hover:text-destructive"
+            title={
+              run.cancel_requested
+                ? "Stop already requested — waiting for current team to finish"
+                : "Halt the pipeline at the next per-team checkpoint"
+            }
+          >
+            {run.cancel_requested
+              ? "Stopping..."
+              : stopping
+                ? "Stopping..."
+                : "Stop"}
+          </Button>
+        )}
         {canResume && completedStages > 0 && (
           <Button
             size="sm"
             variant="outline"
             onClick={handleResume}
             disabled={resuming}
-            className="ml-auto h-7 text-xs"
+            className={`${pipelineActive ? "" : "ml-auto"} h-7 text-xs`}
           >
             {resuming ? "Resuming..." : "Resume"}
           </Button>
