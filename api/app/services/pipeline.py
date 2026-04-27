@@ -187,6 +187,11 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
             _update_run(db, run, status="failed", error=str(exc))
             return
 
+    # Acquisition runs carry forward successful results so re-runs only
+    # re-attempt previously-failed (or URL-edited) teams.
+    if phase in ("acquisition", "full"):
+        _seed_acquisition_data(db, hackathon.id, run, cfg)
+
     try:
         _run_stages(db, run, cfg, resume, target_stages=target_stages)
     except PipelineCancelled:
@@ -213,6 +218,53 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
             stage_progress=progress,
             completed_at=datetime.now(timezone.utc),
         )
+
+
+def _seed_acquisition_data(
+    db: Session,
+    hackathon_id: str,
+    run: db_models.PipelineRun,
+    cfg: "ReviewConfig",
+) -> None:
+    """Carry forward repo_metadata.json and video_downloads.json from the
+    most recent acquisition run on this hackathon. Combined with each
+    stage's `resume=True` logic, this means a re-run only re-processes
+    teams whose previous entry was a failure (or was purged by a URL
+    edit). 279-team hackathons go from ~10 minutes of redundant
+    file-scanning to seconds.
+
+    submissions.json is intentionally NOT seeded — we want parse to
+    re-read the CSV so URL edits actually take effect.
+    """
+    import shutil
+
+    candidates = (
+        db.query(db_models.PipelineRun)
+        .filter(
+            db_models.PipelineRun.hackathon_id == hackathon_id,
+            db_models.PipelineRun.id != run.id,
+            db_models.PipelineRun.phase.in_(["acquisition", "full"]),
+        )
+        .order_by(db_models.PipelineRun.created_at.desc())
+        .all()
+    )
+
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    for fname, stage in (
+        ("repo_metadata.json", "clone"),
+        ("video_downloads.json", "video_download"),
+    ):
+        target = cfg.data_dir / fname
+        if target.exists():
+            continue
+        for r in candidates:
+            progress = r.stage_progress or {}
+            if progress.get(stage) != "completed":
+                continue
+            src = storage.run_data_dir(hackathon_id, r.id) / fname
+            if src.exists():
+                shutil.copy2(src, target)
+                break
 
 
 def _seed_analysis_data(
