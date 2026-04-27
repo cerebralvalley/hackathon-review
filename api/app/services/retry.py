@@ -31,7 +31,10 @@ def retry_items(
         return
 
     detail = dict(run.stage_detail or {})
-    stage_info = detail.get(stage, {})
+    # Make a *new* inner dict so SQLAlchemy sees stage_detail as changed.
+    # Mutating detail[stage] in place would alias the original column value
+    # and the change wouldn't be persisted on commit.
+    stage_info = dict(detail.get(stage, {}))
     failures_before = stage_info.get("failures", [])
     team_set = set(team_numbers)
 
