@@ -74,6 +74,20 @@ export interface Flag {
   severity: "error" | "warning" | "info";
 }
 
+export interface PatternBundle {
+  id: string;
+  label: string;
+  description: string;
+  pattern_count: number;
+}
+
+export interface PatternPreset {
+  id: string;
+  label: string;
+  description: string;
+  bundles: string[];
+}
+
 export const PIPELINE_STAGES = [
   "parse",
   "clone",

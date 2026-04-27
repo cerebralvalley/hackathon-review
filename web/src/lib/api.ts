@@ -5,6 +5,8 @@ import type {
   LeaderboardEntry,
   ProjectSummary,
   Flag,
+  PatternBundle,
+  PatternPreset,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -103,6 +105,14 @@ export const parseRules = (rulesText: string) =>
     method: "POST",
     body: JSON.stringify({ rules_text: rulesText }),
   });
+
+// Static analysis catalog (bundles + presets)
+export const staticAnalysis = {
+  bundles: () =>
+    request<{ bundles: PatternBundle[]; presets: PatternPreset[] }>(
+      "/api/static-analysis/bundles"
+    ),
+};
 
 // Results
 export const results = {

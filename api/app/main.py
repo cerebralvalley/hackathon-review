@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.app.config import settings
 from api.app.database import Base, engine
-from api.app.routes import hackathons, parse_rules, results, runs
+from api.app.routes import hackathons, parse_rules, results, runs, static_analysis
 
 
 def _run_migrations() -> None:
@@ -76,6 +76,7 @@ app.include_router(hackathons.router)
 app.include_router(runs.router)
 app.include_router(results.router)
 app.include_router(parse_rules.router)
+app.include_router(static_analysis.router)
 
 
 @app.get("/api/health")

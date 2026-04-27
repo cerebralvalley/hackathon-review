@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { staticAnalysis as staticAnalysisApi } from "@/lib/api";
+import type { PatternBundle, PatternPreset } from "@/lib/types";
+
+// Aliases for legacy preset names so existing configs pre-fill correctly.
+const PRESET_ALIASES: Record<string, string> = {
+  ai_hackathon: "llm-advanced",
+  openenv: "rl-training",
+};
 
 export interface HackathonFormData {
   name: string;
@@ -81,10 +89,77 @@ export function HackathonForm({ initial, submitLabel, onSubmit, onCancel }: Prop
   const [videoModel, setVideoModel] = useState(
     String(configVal(cfg, "video_analysis", "model") || "gemini-3-flash-preview")
   );
-  const [patternPreset, setPatternPreset] = useState(
-    String(configVal(cfg, "static_analysis", "pattern_preset") || "general")
+  const initialBundles = useMemo<string[]>(() => {
+    const explicit = configVal(cfg, "static_analysis", "pattern_bundles");
+    if (Array.isArray(explicit) && explicit.every((x) => typeof x === "string")) {
+      return explicit as string[];
+    }
+    // Fall back to preset; bundle list is filled in once the catalog loads.
+    return [];
+  }, [cfg]);
+  const initialPresetId = useMemo(() => {
+    const raw = String(configVal(cfg, "static_analysis", "pattern_preset") || "");
+    return PRESET_ALIASES[raw] || raw || "general";
+  }, [cfg]);
+  const [selectedBundles, setSelectedBundles] = useState<Set<string>>(
+    () => new Set(initialBundles)
   );
+  const [bundles, setBundles] = useState<PatternBundle[]>([]);
+  const [presets, setPresets] = useState<PatternPreset[]>([]);
+  const [bundlesLoading, setBundlesLoading] = useState(true);
   const [criteriaText, setCriteriaText] = useState(criteriaToText(cfg));
+
+  useEffect(() => {
+    let cancelled = false;
+    staticAnalysisApi
+      .bundles()
+      .then(({ bundles, presets }) => {
+        if (cancelled) return;
+        setBundles(bundles);
+        setPresets(presets);
+        // If we don't yet have a bundle selection, hydrate from initial preset.
+        if (selectedBundles.size === 0) {
+          const preset = presets.find((p) => p.id === initialPresetId)
+            ?? presets.find((p) => p.id === "general");
+          if (preset) setSelectedBundles(new Set(preset.bundles));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBundlesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function toggleBundle(id: string) {
+    setSelectedBundles((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function applyPreset(preset: PatternPreset) {
+    setSelectedBundles(new Set(preset.bundles));
+  }
+
+  const matchingPresetId = useMemo(() => {
+    for (const p of presets) {
+      if (
+        p.bundles.length === selectedBundles.size &&
+        p.bundles.every((b) => selectedBundles.has(b))
+      ) {
+        return p.id;
+      }
+    }
+    return null;
+  }, [presets, selectedBundles]);
 
   function parseCriteria() {
     const criteria: Record<string, { weight: number; description: string }> = {};
@@ -114,7 +189,9 @@ export function HackathonForm({ initial, submitLabel, onSubmit, onCancel }: Prop
         ...(promptPreamble ? { prompt_preamble: promptPreamble } : {}),
       },
       video_analysis: { provider: videoProvider, model: videoModel },
-      static_analysis: { pattern_preset: patternPreset },
+      static_analysis: {
+        pattern_bundles: Array.from(selectedBundles),
+      },
     };
 
     if (deadlineUtc || startDate || endDate) {
@@ -295,24 +372,89 @@ export function HackathonForm({ initial, submitLabel, onSubmit, onCancel }: Prop
       <Card>
         <CardHeader>
           <CardTitle>Static Analysis</CardTitle>
+          <CardDescription>
+            What to look for in submitted code. Pick a starter combo or check
+            individual bundles.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label>Pattern Preset</Label>
-            <select
-              value={patternPreset}
-              onChange={(e) => setPatternPreset(e.target.value)}
-              className={selectClass}
-            >
-              <option value="general">General (SDK detection)</option>
-              <option value="ai_hackathon">
-                AI Hackathon (extended thinking, MCP, etc.)
-              </option>
-              <option value="openenv">
-                OpenEnv (RL, training pipelines, HuggingFace)
-              </option>
-            </select>
-          </div>
+        <CardContent className="space-y-5">
+          {bundlesLoading ? (
+            <p className="text-sm text-muted-foreground">Loading patterns…</p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Starter combo
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {presets.map((p) => {
+                    const active = matchingPresetId === p.id;
+                    return (
+                      <Button
+                        key={p.id}
+                        type="button"
+                        size="sm"
+                        variant={active ? "default" : "outline"}
+                        onClick={() => applyPreset(p)}
+                        title={p.description}
+                      >
+                        {p.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {matchingPresetId
+                    ? presets.find((p) => p.id === matchingPresetId)?.description
+                    : `Custom selection (${selectedBundles.size} bundle${
+                        selectedBundles.size === 1 ? "" : "s"
+                      })`}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Pattern bundles
+                </Label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {bundles.map((b) => {
+                    const checked = selectedBundles.has(b.id);
+                    return (
+                      <label
+                        key={b.id}
+                        className={`flex gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
+                          checked
+                            ? "border-foreground/30 bg-muted/40"
+                            : "border-border hover:bg-muted/20"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleBundle(b.id)}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium">
+                              {b.label}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                              {b.pattern_count} pattern
+                              {b.pattern_count === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {b.description}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

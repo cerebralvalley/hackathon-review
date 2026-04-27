@@ -44,224 +44,323 @@ SCANNABLE_FILENAMES = {
 }
 
 # ---------------------------------------------------------------------------
-# Pattern presets — select via config `static_analysis.pattern_preset`
+# Pattern bundles — granular, mix-and-match groups of related regex patterns.
+# Each bundle has a stable id (used in config), a label/description for UIs,
+# and a dict of named patterns. Hackathon configs select bundles via
+# `static_analysis.pattern_bundles` (explicit list) or `pattern_preset`
+# (named starter combo that resolves to a bundle list).
 # ---------------------------------------------------------------------------
 
-COMMON_PATTERNS: dict[str, dict] = {
-    "openai_sdk": {
-        "patterns": [
-            r"import\s+openai", r"from\s+openai",
-            r"OpenAI\(", r"OPENAI_API_KEY",
-        ],
-        "weight": 2,
-        "description": "OpenAI SDK usage",
+PATTERN_BUNDLES: dict[str, dict] = {
+    "llm-sdks": {
+        "label": "LLM SDKs",
+        "description": "OpenAI, Anthropic, and Gemini SDK imports / clients.",
+        "patterns": {
+            "openai_sdk": {
+                "patterns": [
+                    r"import\s+openai", r"from\s+openai",
+                    r"OpenAI\(", r"OPENAI_API_KEY",
+                ],
+                "weight": 2,
+                "description": "OpenAI SDK usage",
+            },
+            "anthropic_sdk": {
+                "patterns": [
+                    r"import\s+anthropic", r"from\s+anthropic",
+                    r"require\(['\"]@anthropic", r"require\(['\"]anthropic",
+                    r"import\s+Anthropic", r"new\s+Anthropic",
+                ],
+                "weight": 2,
+                "description": "Anthropic SDK import/usage",
+            },
+            "gemini_sdk": {
+                "patterns": [
+                    r"import\s+google\.genai", r"from\s+google\s+import\s+genai",
+                    r"genai\.Client", r"GEMINI_API_KEY",
+                ],
+                "weight": 2,
+                "description": "Google Gemini SDK usage",
+            },
+        },
     },
-    "anthropic_sdk": {
-        "patterns": [
-            r"import\s+anthropic", r"from\s+anthropic",
-            r"require\(['\"]@anthropic", r"require\(['\"]anthropic",
-            r"import\s+Anthropic", r"new\s+Anthropic",
-        ],
-        "weight": 2,
-        "description": "Anthropic SDK import/usage",
+    "tool-use": {
+        "label": "Tool use & streaming",
+        "description": "Function calling, tool definitions, streaming response handling.",
+        "patterns": {
+            "tool_use": {
+                "patterns": [
+                    r"tool_use", r"tool_choice", r"function_calling",
+                    r"tools\s*=\s*\[", r"input_schema",
+                ],
+                "weight": 3,
+                "description": "Tool use / function calling",
+            },
+            "streaming": {
+                "patterns": [
+                    r"stream.*message", r"with.*stream",
+                    r"content_block", r"message_stream",
+                ],
+                "weight": 2,
+                "description": "Streaming response handling",
+            },
+            "system_prompt": {
+                "patterns": [
+                    r"system\s*[=:]\s*['\"]", r"system_prompt",
+                    r"role.*system",
+                ],
+                "weight": 1,
+                "description": "System prompt usage",
+            },
+        },
     },
-    "gemini_sdk": {
-        "patterns": [
-            r"import\s+google\.genai", r"from\s+google\s+import\s+genai",
-            r"genai\.Client", r"GEMINI_API_KEY",
-        ],
-        "weight": 2,
-        "description": "Google Gemini SDK usage",
+    "agents": {
+        "label": "Agent patterns",
+        "description": "Autonomous agent loops, observe/act/plan structures.",
+        "patterns": {
+            "agentic_pattern": {
+                "patterns": [
+                    r"agent.*loop", r"observe.*act", r"autonomous",
+                    r"self.*correct", r"plan.*execute",
+                ],
+                "weight": 3,
+                "description": "Agentic patterns",
+            },
+        },
     },
-    "agentic_pattern": {
-        "patterns": [
-            r"agent.*loop", r"observe.*act", r"autonomous",
-            r"self.*correct", r"plan.*execute",
-        ],
-        "weight": 3,
-        "description": "Agentic patterns",
+    "claude-specific": {
+        "label": "Claude-specific",
+        "description": "Claude model refs, extended thinking, Claude Code, multi-turn.",
+        "patterns": {
+            "claude_model_reference": {
+                "patterns": [
+                    r"claude-opus", r"claude-sonnet", r"claude-haiku",
+                    r"claude-3", r"claude-4",
+                    r"opus-4", r"opus4",
+                ],
+                "weight": 3,
+                "description": "Claude model name reference",
+            },
+            "anthropic_api_key": {
+                "patterns": [r"ANTHROPIC_API_KEY", r"sk-ant-"],
+                "weight": 2,
+                "description": "Anthropic API key reference",
+            },
+            "extended_thinking": {
+                "patterns": [
+                    r"extended.?thinking", r"thinking.*budget",
+                    r"think.*tokens", r"budget_tokens",
+                ],
+                "weight": 4,
+                "description": "Extended thinking / chain-of-thought",
+            },
+            "claude_code": {
+                "patterns": [
+                    r"claude.?code", r"CLAUDE\.md", r"\.claude",
+                    r"claude.*hooks", r"claude.*skills",
+                ],
+                "weight": 3,
+                "description": "Claude Code integration",
+            },
+            "multi_turn": {
+                "patterns": [
+                    r"conversation.*history", r"messages\s*[\.\[]\s*append",
+                    r"chat.*history", r"message.*history",
+                ],
+                "weight": 2,
+                "description": "Multi-turn conversation",
+            },
+        },
     },
-    "tool_use": {
-        "patterns": [
-            r"tool_use", r"tool_choice", r"function_calling",
-            r"tools\s*=\s*\[", r"input_schema",
-        ],
-        "weight": 3,
-        "description": "Tool use / function calling",
+    "mcp": {
+        "label": "MCP (Model Context Protocol)",
+        "description": "MCP server / client patterns, FastMCP, mcp.tool decorators.",
+        "patterns": {
+            "mcp_server": {
+                "patterns": [
+                    r"mcp.*server", r"model.?context.?protocol",
+                    r"FastMCP", r"@mcp", r"mcp\.tool", r"MCPServer",
+                ],
+                "weight": 4,
+                "description": "MCP (Model Context Protocol) server",
+            },
+        },
     },
-    "streaming": {
-        "patterns": [
-            r"stream.*message", r"with.*stream",
-            r"content_block", r"message_stream",
-        ],
-        "weight": 2,
-        "description": "Streaming response handling",
+    "rl-frameworks": {
+        "label": "RL frameworks",
+        "description": "OpenEnv, Unsloth, TRL, GRPO, Gymnasium, reward modeling, multi-agent.",
+        "patterns": {
+            "openenv": {
+                "patterns": [
+                    r"import\s+openenv", r"from\s+openenv",
+                    r"open.?env", r"OpenEnv",
+                ],
+                "weight": 5,
+                "description": "OpenEnv framework usage",
+            },
+            "unsloth": {
+                "patterns": [
+                    r"import\s+unsloth", r"from\s+unsloth",
+                    r"unsloth", r"FastLanguageModel",
+                    r"UnslothTrainer",
+                ],
+                "weight": 4,
+                "description": "Unsloth AI training framework",
+            },
+            "trl": {
+                "patterns": [
+                    r"import\s+trl", r"from\s+trl",
+                    r"GRPOTrainer", r"PPOTrainer", r"SFTTrainer",
+                    r"DPOTrainer", r"RewardTrainer",
+                ],
+                "weight": 4,
+                "description": "HuggingFace TRL (Transformer Reinforcement Learning)",
+            },
+            "grpo": {
+                "patterns": [
+                    r"GRPO", r"group.?relative.?policy",
+                    r"grpo_config", r"GRPOConfig",
+                ],
+                "weight": 4,
+                "description": "GRPO (Group Relative Policy Optimization)",
+            },
+            "reward_modeling": {
+                "patterns": [
+                    r"reward.?function", r"reward.?model", r"reward.?signal",
+                    r"compute.?reward", r"reward_fn", r"get_reward",
+                    r"reward.?shaping", r"reward.?curve",
+                ],
+                "weight": 4,
+                "description": "Reward function / reward modeling",
+            },
+            "rl_environment": {
+                "patterns": [
+                    r"gymnasium", r"import\s+gym", r"from\s+gym",
+                    r"env\.reset", r"env\.step", r"observation.?space",
+                    r"action.?space", r"make_env",
+                ],
+                "weight": 3,
+                "description": "RL environment (Gymnasium/Gym) patterns",
+            },
+            "multi_agent": {
+                "patterns": [
+                    r"multi.?agent", r"agent.*interact", r"agent.*cooperat",
+                    r"agent.*compet", r"negotiat", r"coalition",
+                    r"theory.?of.?mind", r"self.?play",
+                ],
+                "weight": 3,
+                "description": "Multi-agent interaction patterns",
+            },
+        },
     },
-    "system_prompt": {
-        "patterns": [
-            r"system\s*[=:]\s*['\"]", r"system_prompt",
-            r"role.*system",
-        ],
-        "weight": 1,
-        "description": "System prompt usage",
+    "huggingface": {
+        "label": "HuggingFace",
+        "description": "Spaces / Gradio deployment, Transformers, Hub upload.",
+        "patterns": {
+            "huggingface_spaces": {
+                "patterns": [
+                    r"gradio", r"import\s+gradio", r"from\s+gradio",
+                    r"gr\.Interface", r"gr\.Blocks",
+                    r"huggingface.co/spaces", r"hf\.space",
+                    r"spaces\.launch",
+                ],
+                "weight": 3,
+                "description": "HuggingFace Spaces / Gradio deployment",
+            },
+            "huggingface_hub": {
+                "patterns": [
+                    r"from\s+huggingface_hub", r"import\s+huggingface_hub",
+                    r"from\s+transformers", r"import\s+transformers",
+                    r"AutoModelFor", r"AutoTokenizer",
+                    r"push_to_hub", r"HfApi",
+                ],
+                "weight": 3,
+                "description": "HuggingFace Hub / Transformers usage",
+            },
+        },
+    },
+    "training-infra": {
+        "label": "Training infrastructure",
+        "description": "Training loops, hyperparameters, wandb / tensorboard.",
+        "patterns": {
+            "training_pipeline": {
+                "patterns": [
+                    r"training.?loop", r"train_model", r"trainer\.train",
+                    r"training.?script", r"training.?config",
+                    r"epochs?", r"batch.?size", r"learning.?rate",
+                    r"wandb", r"tensorboard", r"training.?log",
+                ],
+                "weight": 3,
+                "description": "Training pipeline / experiment tracking",
+            },
+        },
     },
 }
 
-_AI_HACKATHON_EXTRA: dict[str, dict] = {
-    "claude_model_reference": {
-        "patterns": [
-            r"claude-opus", r"claude-sonnet", r"claude-haiku",
-            r"claude-3", r"claude-4",
-            r"opus-4", r"opus4",
-        ],
-        "weight": 3,
-        "description": "Claude model name reference",
+# Starter combos — pre-fill bundle selections in the UI.
+# IDs are stable (used in saved configs); old names below are aliases.
+PATTERN_PRESETS: dict[str, dict] = {
+    "general": {
+        "label": "General",
+        "description": "Basic LLM SDK detection plus tool use and agent patterns.",
+        "bundles": ["llm-sdks", "tool-use", "agents"],
     },
-    "anthropic_api_key": {
-        "patterns": [r"ANTHROPIC_API_KEY", r"sk-ant-"],
-        "weight": 2,
-        "description": "Anthropic API key reference",
+    "llm-advanced": {
+        "label": "LLM-focused (Claude / MCP)",
+        "description": "General + Claude-specific patterns and MCP server detection.",
+        "bundles": ["llm-sdks", "tool-use", "agents", "claude-specific", "mcp"],
     },
-    "extended_thinking": {
-        "patterns": [
-            r"extended.?thinking", r"thinking.*budget",
-            r"think.*tokens", r"budget_tokens",
-        ],
-        "weight": 4,
-        "description": "Extended thinking / chain-of-thought",
-    },
-    "mcp_server": {
-        "patterns": [
-            r"mcp.*server", r"model.?context.?protocol",
-            r"FastMCP", r"@mcp", r"mcp\.tool", r"MCPServer",
-        ],
-        "weight": 4,
-        "description": "MCP (Model Context Protocol) server",
-    },
-    "claude_code": {
-        "patterns": [
-            r"claude.?code", r"CLAUDE\.md", r"\.claude",
-            r"claude.*hooks", r"claude.*skills",
-        ],
-        "weight": 3,
-        "description": "Claude Code integration",
-    },
-    "multi_turn": {
-        "patterns": [
-            r"conversation.*history", r"messages\s*[\.\[]\s*append",
-            r"chat.*history", r"message.*history",
-        ],
-        "weight": 2,
-        "description": "Multi-turn conversation",
+    "rl-training": {
+        "label": "RL training",
+        "description": "RL frameworks, HuggingFace ecosystem, training pipelines.",
+        "bundles": ["llm-sdks", "agents", "rl-frameworks", "huggingface", "training-infra"],
     },
 }
 
-_OPENENV_EXTRA: dict[str, dict] = {
-    "openenv": {
-        "patterns": [
-            r"import\s+openenv", r"from\s+openenv",
-            r"open.?env", r"OpenEnv",
-        ],
-        "weight": 5,
-        "description": "OpenEnv framework usage",
-    },
-    "unsloth": {
-        "patterns": [
-            r"import\s+unsloth", r"from\s+unsloth",
-            r"unsloth", r"FastLanguageModel",
-            r"UnslothTrainer",
-        ],
-        "weight": 4,
-        "description": "Unsloth AI training framework",
-    },
-    "trl": {
-        "patterns": [
-            r"import\s+trl", r"from\s+trl",
-            r"GRPOTrainer", r"PPOTrainer", r"SFTTrainer",
-            r"DPOTrainer", r"RewardTrainer",
-        ],
-        "weight": 4,
-        "description": "HuggingFace TRL (Transformer Reinforcement Learning)",
-    },
-    "grpo": {
-        "patterns": [
-            r"GRPO", r"group.?relative.?policy",
-            r"grpo_config", r"GRPOConfig",
-        ],
-        "weight": 4,
-        "description": "GRPO (Group Relative Policy Optimization)",
-    },
-    "reward_modeling": {
-        "patterns": [
-            r"reward.?function", r"reward.?model", r"reward.?signal",
-            r"compute.?reward", r"reward_fn", r"get_reward",
-            r"reward.?shaping", r"reward.?curve",
-        ],
-        "weight": 4,
-        "description": "Reward function / reward modeling",
-    },
-    "rl_environment": {
-        "patterns": [
-            r"gymnasium", r"import\s+gym", r"from\s+gym",
-            r"env\.reset", r"env\.step", r"observation.?space",
-            r"action.?space", r"make_env",
-        ],
-        "weight": 3,
-        "description": "RL environment (Gymnasium/Gym) patterns",
-    },
-    "huggingface_spaces": {
-        "patterns": [
-            r"gradio", r"import\s+gradio", r"from\s+gradio",
-            r"gr\.Interface", r"gr\.Blocks",
-            r"huggingface.co/spaces", r"hf\.space",
-            r"spaces\.launch",
-        ],
-        "weight": 3,
-        "description": "HuggingFace Spaces / Gradio deployment",
-    },
-    "huggingface_hub": {
-        "patterns": [
-            r"from\s+huggingface_hub", r"import\s+huggingface_hub",
-            r"from\s+transformers", r"import\s+transformers",
-            r"AutoModelFor", r"AutoTokenizer",
-            r"push_to_hub", r"HfApi",
-        ],
-        "weight": 3,
-        "description": "HuggingFace Hub / Transformers usage",
-    },
-    "multi_agent": {
-        "patterns": [
-            r"multi.?agent", r"agent.*interact", r"agent.*cooperat",
-            r"agent.*compet", r"negotiat", r"coalition",
-            r"theory.?of.?mind", r"self.?play",
-        ],
-        "weight": 3,
-        "description": "Multi-agent interaction patterns",
-    },
-    "training_pipeline": {
-        "patterns": [
-            r"training.?loop", r"train_model", r"trainer\.train",
-            r"training.?script", r"training.?config",
-            r"epochs?", r"batch.?size", r"learning.?rate",
-            r"wandb", r"tensorboard", r"training.?log",
-        ],
-        "weight": 3,
-        "description": "Training pipeline / experiment tracking",
-    },
+# Back-compat: existing configs that say `pattern_preset: ai_hackathon` or
+# `openenv` should keep working after the rename.
+_PRESET_ALIASES: dict[str, str] = {
+    "ai_hackathon": "llm-advanced",
+    "openenv": "rl-training",
 }
 
-PATTERN_PRESETS: dict[str, dict[str, dict]] = {
-    "general": COMMON_PATTERNS,
-    "ai_hackathon": {**COMMON_PATTERNS, **_AI_HACKATHON_EXTRA},
-    "openenv": {**COMMON_PATTERNS, **_OPENENV_EXTRA},
-}
+
+def resolve_preset(preset_id: str | None) -> str | None:
+    """Apply preset aliases. Returns canonical id, or None if not found."""
+    if not preset_id:
+        return None
+    return _PRESET_ALIASES.get(preset_id, preset_id) if preset_id not in PATTERN_PRESETS else preset_id
+
+
+def _flatten_bundles(bundle_ids: list[str]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for bid in bundle_ids:
+        bundle = PATTERN_BUNDLES.get(bid)
+        if bundle:
+            out.update(bundle["patterns"])
+    return out
 
 
 def get_patterns(cfg: ReviewConfig) -> dict[str, dict]:
-    """Resolve the active pattern set from config preset + extra_patterns."""
-    preset_name = cfg.static_analysis.pattern_preset
-    patterns = dict(PATTERN_PRESETS.get(preset_name, COMMON_PATTERNS))
-    for name, pat_cfg in cfg.static_analysis.extra_patterns.items():
+    """Resolve the active pattern set.
+
+    Resolution order:
+      1. `pattern_bundles` (explicit list of bundle ids), if non-empty.
+      2. `pattern_preset` (name resolved through aliases) -> bundle list.
+      3. Fallback to the `general` preset.
+    `extra_patterns` is always layered on top.
+    """
+    sa = cfg.static_analysis
+    bundle_ids: list[str] = list(getattr(sa, "pattern_bundles", []) or [])
+
+    if not bundle_ids:
+        canonical = resolve_preset(sa.pattern_preset)
+        preset = PATTERN_PRESETS.get(canonical) if canonical else None
+        if preset is None:
+            preset = PATTERN_PRESETS["general"]
+        bundle_ids = list(preset["bundles"])
+
+    patterns = _flatten_bundles(bundle_ids)
+    for name, pat_cfg in (sa.extra_patterns or {}).items():
         patterns[name] = pat_cfg
     return patterns
 

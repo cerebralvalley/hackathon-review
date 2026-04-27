@@ -44,7 +44,11 @@ class VideoAnalysisConfig(BaseModel):
 
 
 class StaticAnalysisConfig(BaseModel):
-    pattern_preset: str = "general"  # "general", "ai_hackathon", "openenv"
+    # Explicit list of bundle ids takes precedence; if empty, falls back to
+    # `pattern_preset` (which is a starter combo that resolves to a bundle list).
+    # See `hackathon_reviewer.stages.static_analysis.PATTERN_BUNDLES`.
+    pattern_bundles: list[str] = Field(default_factory=list)
+    pattern_preset: str = "general"  # "general" | "llm-advanced" | "rl-training"
     extra_patterns: dict = Field(default_factory=dict)
 
 
