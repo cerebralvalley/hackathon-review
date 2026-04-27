@@ -108,6 +108,43 @@ async def upload_csv(hackathon_id: str, file: UploadFile, db: Session = Depends(
     return h
 
 
+@router.post("/{hackathon_id}/clear-cache", status_code=200)
+def clear_hackathon_cache(hackathon_id: str, db: Session = Depends(get_db)):
+    """Wipe all pipeline runs and cached run data (cloned repos, videos,
+    reports, logs) for this hackathon. Preserves config and uploaded CSV.
+    Refuses if a run is currently active.
+    """
+    h = db.get(Hackathon, hackathon_id)
+    if not h:
+        raise HTTPException(404, "Hackathon not found")
+
+    active = (
+        db.query(PipelineRun)
+        .filter(
+            PipelineRun.hackathon_id == hackathon_id,
+            PipelineRun.status.in_(["pending", "running"]),
+        )
+        .first()
+    )
+    if active:
+        raise HTTPException(
+            409, f"Cannot clear cache while a run is {active.status} (id={active.id})"
+        )
+
+    deleted_rows = (
+        db.query(PipelineRun)
+        .filter(PipelineRun.hackathon_id == hackathon_id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    runs_dir = storage.hackathon_dir(hackathon_id) / "runs"
+    if runs_dir.exists():
+        shutil.rmtree(runs_dir, ignore_errors=True)
+
+    return {"deleted_runs": deleted_rows}
+
+
 @router.get("/{hackathon_id}/csv/preview")
 def preview_csv(
     hackathon_id: str,

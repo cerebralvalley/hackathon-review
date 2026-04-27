@@ -49,6 +49,11 @@ export const hackathons = {
   delete: (id: string) =>
     request<void>(`/api/hackathons/${id}`, { method: "DELETE" }),
 
+  clearCache: (id: string) =>
+    request<{ deleted_runs: number }>(`/api/hackathons/${id}/clear-cache`, {
+      method: "POST",
+    }),
+
   uploadCsv: async (id: string, file: File) => {
     const form = new FormData();
     form.append("file", file);

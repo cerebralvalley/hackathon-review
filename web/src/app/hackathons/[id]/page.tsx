@@ -44,6 +44,7 @@ export default function HackathonDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [triggering, setTriggering] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
 
   const load = useCallback(async () => {
     const [h, r] = await Promise.all([
@@ -96,6 +97,30 @@ export default function HackathonDetailPage() {
     }
   }
 
+  async function handleClearCache() {
+    if (
+      !confirm(
+        "Clear all run data (cloned repos, videos, reports, logs) for this hackathon? Config and CSV are preserved. This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setClearingCache(true);
+    try {
+      const { deleted_runs } = await hackathonsApi.clearCache(id);
+      setPipelineRuns([]);
+      alert(
+        deleted_runs > 0
+          ? `Cleared ${deleted_runs} run${deleted_runs === 1 ? "" : "s"} and their cached data.`
+          : "No cached data to clear."
+      );
+    } catch (err) {
+      alert(String(err));
+    } finally {
+      setClearingCache(false);
+    }
+  }
+
   function handleRunUpdate(updatedRun: PipelineRun) {
     setPipelineRuns((prev) =>
       prev.map((r) => (r.id === updatedRun.id ? updatedRun : r))
@@ -137,6 +162,19 @@ export default function HackathonDetailPage() {
             onClick={() => router.push(`/hackathons/${id}/edit`)}
           >
             Edit Config
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleClearCache}
+            disabled={clearingCache || hasActiveRun}
+            title={
+              hasActiveRun
+                ? "Cannot clear cache while a run is active"
+                : "Wipe all runs and cached pipeline data; keeps config and CSV"
+            }
+          >
+            {clearingCache ? "Clearing..." : "Clear Cache"}
           </Button>
           <Button
             variant="outline"
