@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronRight, Undo2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Undo2, X } from "lucide-react";
+import { EditableUrl } from "@/components/editable-url";
 import {
   hackathons as hackathonsApi,
   results as resultsApi,
@@ -437,31 +438,26 @@ export default function HackathonDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Runs */}
+      {/* Run history — link to dedicated page */}
       {pipelineRuns.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
-            Run history
-          </h3>
-          <div className="space-y-4">
-            {pipelineRuns.map((run) => (
-              <Card key={run.id}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-mono">
-                      {run.id.slice(0, 8)}
-                    </CardTitle>
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(run.created_at).toLocaleString()}
-                    </span>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <PipelineProgress run={run} onUpdate={handleRunUpdate} />
-                </CardContent>
-              </Card>
-            ))}
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div>
+            <h3 className="text-sm font-semibold">Run history</h3>
+            <p className="text-xs text-muted-foreground">
+              {pipelineRuns.length} run{pipelineRuns.length === 1 ? "" : "s"} ·
+              latest{" "}
+              <span className="font-mono">
+                {pipelineRuns[0].id.slice(0, 8)}
+              </span>{" "}
+              {pipelineRuns[0].status}
+            </p>
           </div>
+          <Link
+            href={`/hackathons/${id}/runs`}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            View runs →
+          </Link>
         </div>
       )}
     </div>
@@ -725,6 +721,8 @@ function LeaderboardTable({
   );
 }
 
+const COMPACT_TEAM_LIMIT = 5;
+
 function DataAcquisitionInline({
   hackathonId,
   run,
@@ -734,19 +732,27 @@ function DataAcquisitionInline({
 }) {
   const [outreach, setOutreach] = useState<OutreachTeam[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!run) {
       setOutreach(null);
       return;
     }
     setLoading(true);
-    resultsApi
-      .outreach(run.id)
-      .then(setOutreach)
-      .catch(() => setOutreach([]))
-      .finally(() => setLoading(false));
+    try {
+      const data = await resultsApi.outreach(run.id);
+      setOutreach(data);
+    } catch {
+      setOutreach([]);
+    } finally {
+      setLoading(false);
+    }
   }, [run?.id]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   if (!run) {
     return (
@@ -767,7 +773,7 @@ function DataAcquisitionInline({
           : run.status}
       </div>
 
-      {loading ? (
+      {loading && !outreach ? (
         <p className="text-sm text-muted-foreground">Checking outreach…</p>
       ) : !outreach || outreach.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -788,14 +794,26 @@ function DataAcquisitionInline({
                 buttonVariants({ variant: "outline", size: "sm" }),
               )}
             >
-              Review &amp; fix URLs →
+              Open full outreach view →
             </Link>
           </div>
-          <OutreachInlineList teams={outreach.slice(0, 5)} />
-          {outreach.length > 5 && (
-            <p className="text-xs text-muted-foreground">
-              + {outreach.length - 5} more — click Review &amp; fix URLs
-            </p>
+          <OutreachInlineList
+            teams={
+              showAll ? outreach : outreach.slice(0, COMPACT_TEAM_LIMIT)
+            }
+            hackathonId={hackathonId}
+            onSaved={refresh}
+          />
+          {outreach.length > COMPACT_TEAM_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            >
+              {showAll
+                ? `Show first ${COMPACT_TEAM_LIMIT}`
+                : `Show all ${outreach.length} teams`}
+            </button>
           )}
         </>
       )}
@@ -803,44 +821,132 @@ function DataAcquisitionInline({
   );
 }
 
-function OutreachInlineList({ teams }: { teams: OutreachTeam[] }) {
+function OutreachInlineList({
+  teams,
+  hackathonId,
+  onSaved,
+}: {
+  teams: OutreachTeam[];
+  hackathonId: string;
+  onSaved: () => void;
+}) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  function toggle(tn: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(tn)) next.delete(tn);
+      else next.add(tn);
+      return next;
+    });
+  }
+
   return (
     <div className="rounded-md border divide-y max-h-[480px] overflow-auto">
       {teams.map((t) => {
         const issueLabels = t.issues.map((i) => i.label).join(", ");
         const memberCount = t.members.length;
+        const isOpen = expanded.has(t.team_number);
         return (
-          <div
-            key={t.team_number}
-            className="flex items-start gap-3 p-3 text-sm"
-          >
-            <span className="font-mono text-xs text-muted-foreground mt-0.5 shrink-0">
-              #{t.team_number}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium truncate">
-                  {t.team_name}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  · {memberCount} member{memberCount === 1 ? "" : "s"}
-                </span>
+          <div key={t.team_number} className="text-sm">
+            <button
+              type="button"
+              onClick={() => toggle(t.team_number)}
+              className="flex w-full items-start gap-3 p-3 text-left hover:bg-muted/30 transition-colors"
+            >
+              {isOpen ? (
+                <ChevronDown className="size-4 mt-0.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="size-4 mt-0.5 shrink-0 text-muted-foreground" />
+              )}
+              <span className="font-mono text-xs text-muted-foreground mt-0.5 shrink-0">
+                #{t.team_number}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium truncate">{t.team_name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    · {memberCount} member{memberCount === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {!isOpen && (
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {issueLabels}
+                  </p>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                {issueLabels}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-1 justify-end shrink-0">
-              {t.issues.map((i) => (
-                <Badge
-                  key={i.type}
-                  variant="destructive"
-                  className="text-[10px]"
-                >
-                  {i.type.replace(/_/g, " ")}
-                </Badge>
-              ))}
-            </div>
+              <div className="flex flex-wrap gap-1 justify-end shrink-0">
+                {t.issues.map((i) => (
+                  <Badge
+                    key={i.type}
+                    variant="destructive"
+                    className="text-[10px]"
+                  >
+                    {i.type.replace(/_/g, " ")}
+                  </Badge>
+                ))}
+              </div>
+            </button>
+            {isOpen && (
+              <div className="px-4 pb-3 pl-12 space-y-2.5">
+                {/* Detailed issue messages */}
+                <div className="space-y-1">
+                  {t.issues.map((issue) => (
+                    <p
+                      key={issue.type}
+                      className="text-xs text-muted-foreground"
+                    >
+                      <span className="text-destructive font-medium">
+                        {issue.label}:
+                      </span>{" "}
+                      {issue.description}
+                    </p>
+                  ))}
+                </div>
+
+                {/* Member emails */}
+                {t.members.length > 0 && (
+                  <div className="text-xs">
+                    <span className="text-muted-foreground uppercase tracking-wide text-[10px]">
+                      Members
+                    </span>
+                    <ul className="mt-0.5 space-y-0.5">
+                      {t.members.map((m, i) => (
+                        <li key={i} className="truncate">
+                          {m.name}
+                          {m.email && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              &lt;{m.email}&gt;
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Editable URLs */}
+                <div className="space-y-1.5 pt-1">
+                  <EditableUrl
+                    hackathonId={hackathonId}
+                    teamNumber={t.team_number}
+                    field="github_url"
+                    label="GitHub"
+                    initialUrl={t.github_url}
+                    onSaved={onSaved}
+                  />
+                  <EditableUrl
+                    hackathonId={hackathonId}
+                    teamNumber={t.team_number}
+                    field="video_url"
+                    label="Video"
+                    initialUrl={t.video_url}
+                    onSaved={onSaved}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
