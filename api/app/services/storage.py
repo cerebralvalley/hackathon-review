@@ -45,3 +45,14 @@ def run_videos_dir(hackathon_id: str, run_id: str) -> Path:
 
 def run_logs_dir(hackathon_id: str, run_id: str) -> Path:
     return run_output_dir(hackathon_id, run_id) / "logs"
+
+
+# Hackathon-level shared cache: cloned repos and downloaded videos live
+# here so they're reused across multiple pipeline runs for the same
+# hackathon. Per-run output (JSON, logs, reports) still lives under runs/.
+def hackathon_repos_dir(hackathon_id: str) -> Path:
+    return hackathon_dir(hackathon_id) / "repos"
+
+
+def hackathon_videos_dir(hackathon_id: str) -> Path:
+    return hackathon_dir(hackathon_id) / "videos"

@@ -107,17 +107,23 @@ class ReviewConfig(BaseModel):
     csv_path: Path | None = None
     output_dir: Path = Path("./output")
 
+    # Optional overrides so the web app can point repos/videos at a
+    # hackathon-level shared cache (so re-runs don't re-clone everything).
+    # CLI mode leaves these as None and falls back to per-output_dir paths.
+    repos_dir_override: Path | None = None
+    videos_dir_override: Path | None = None
+
     @property
     def data_dir(self) -> Path:
         return self.output_dir / "data"
 
     @property
     def repos_dir(self) -> Path:
-        return self.output_dir / "repos"
+        return self.repos_dir_override or (self.output_dir / "repos")
 
     @property
     def videos_dir(self) -> Path:
-        return self.output_dir / "videos"
+        return self.videos_dir_override or (self.output_dir / "videos")
 
     @property
     def reports_dir(self) -> Path:

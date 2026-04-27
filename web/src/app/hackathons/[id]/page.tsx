@@ -215,8 +215,7 @@ export default function HackathonDetailPage() {
               </div>
               <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
                 <li>Run history (every PipelineRun row in the DB)</li>
-                <li>Cloned repositories under <code className="text-xs">runs/&lt;run_id&gt;/repos/</code></li>
-                <li>Downloaded videos</li>
+                <li>The hackathon-level shared cache of cloned repos and downloaded videos</li>
                 <li>Per-stage logs and pipeline JSON outputs</li>
                 <li>Generated reports and leaderboards</li>
               </ul>

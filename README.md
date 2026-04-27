@@ -155,7 +155,10 @@ In two terminals (or use a process manager):
 
 ```bash
 # Terminal 1 — FastAPI backend on :8000
-uvicorn api.app.main:app --reload --port 8000
+# --reload-dir restricts hot-reload to source code; without it, every
+# file the pipeline writes (cloned repos, downloaded videos) would
+# trigger a reload and deadlock the worker thread.
+uvicorn api.app.main:app --reload --reload-dir api --reload-dir src --port 8000
 
 # Terminal 2 — Next.js frontend on :3000
 cd web
@@ -169,7 +172,9 @@ Then open **http://localhost:3000**.
 | What | Where |
 |------|-------|
 | Hackathons, runs, stage progress | SQLite DB at `./data/hackathon_review.db` (override with `DATABASE_URL`) |
-| Uploaded CSVs, cloned repos, downloaded videos, output reports | `./data/<hackathon_id>/runs/<run_id>/` (override with `DATA_ROOT`) |
+| Uploaded CSVs | `./data/<hackathon_id>/<filename>.csv` |
+| Cloned repos and downloaded videos (shared across runs) | `./data/<hackathon_id>/repos/` and `./data/<hackathon_id>/videos/` |
+| Per-run pipeline outputs (JSON, logs, reports) | `./data/<hackathon_id>/runs/<run_id>/` |
 
 Both default to `./data/`, so a single `rm -rf data/` resets the entire app to a clean slate.
 

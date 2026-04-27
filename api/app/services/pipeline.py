@@ -67,7 +67,13 @@ def _build_review_config(
     hackathon: db_models.Hackathon,
     run: db_models.PipelineRun,
 ) -> "ReviewConfig":
-    """Build a ReviewConfig from DB hackathon config + run output dir."""
+    """Build a ReviewConfig from DB hackathon config + run output dir.
+
+    Web mode: repos and videos are pinned to a hackathon-level shared
+    cache so subsequent pipeline runs reuse already-cloned repos and
+    already-downloaded videos. Per-run output (data/, reports/, logs/)
+    still lives under runs/<run_id>/.
+    """
     from hackathon_reviewer.config import ReviewConfig
 
     config_dict = dict(hackathon.config or {})
@@ -78,6 +84,8 @@ def _build_review_config(
 
     output_dir = storage.run_output_dir(hackathon.id, run.id)
     cfg.output_dir = output_dir
+    cfg.repos_dir_override = storage.hackathon_repos_dir(hackathon.id)
+    cfg.videos_dir_override = storage.hackathon_videos_dir(hackathon.id)
     cfg.ensure_dirs()
 
     return cfg
