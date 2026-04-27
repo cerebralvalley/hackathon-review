@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { results as api } from "@/lib/api";
 import type { LeaderboardEntry } from "@/lib/types";
 import {
@@ -101,63 +101,73 @@ export default function LeaderboardPage() {
           No scores yet. The pipeline may not have completed the scoring stage.
         </p>
       ) : (
-        <div className="rounded-md border overflow-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">#</TableHead>
-                <TableHead>Team</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead className="text-right">Score</TableHead>
-                {criteriaKeys.map((k) => (
-                  <TableHead key={k} className="text-right text-xs">
-                    {k.replace(/_/g, " ")}
-                  </TableHead>
-                ))}
-                <TableHead className="text-right">LOC</TableHead>
-                <TableHead>Language</TableHead>
-                <TableHead>Depth</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((e) => (
-                <TableRow
-                  key={e.team_number}
-                  className="cursor-pointer"
-                  onClick={() =>
-                    window.location.assign(
-                      `/hackathons/${id}/runs/${runId}/projects/${e.team_number}`
-                    )
-                  }
-                >
-                  <TableCell className="font-medium">{e.rank}</TableCell>
-                  <TableCell className="max-w-[150px] truncate">
-                    {e.team_name}
-                  </TableCell>
-                  <TableCell className="max-w-[180px] truncate">
-                    {e.project_name}
-                  </TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {e.weighted_total.toFixed(1)}
-                  </TableCell>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Click a team to see the full code review, video analysis, and project
+            details.
+          </p>
+          <div className="rounded-md border overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead>Team</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead className="text-right">Score</TableHead>
                   {criteriaKeys.map((k) => (
-                    <TableCell key={k} className="text-right tabular-nums">
-                      {e.scores[k]?.toFixed(1) ?? "-"}
-                    </TableCell>
+                    <TableHead key={k} className="text-right text-xs">
+                      {k.replace(/_/g, " ")}
+                    </TableHead>
                   ))}
-                  <TableCell className="text-right tabular-nums">
-                    {e.total_loc.toLocaleString()}
-                  </TableCell>
-                  <TableCell>{e.primary_language}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs">
-                      {e.integration_depth}
-                    </Badge>
-                  </TableCell>
+                  <TableHead className="text-right">LOC</TableHead>
+                  <TableHead>Language</TableHead>
+                  <TableHead>Depth</TableHead>
+                  <TableHead className="w-8" />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {entries.map((e) => (
+                  <TableRow
+                    key={e.team_number}
+                    className="cursor-pointer hover:bg-muted/50 group"
+                    onClick={() =>
+                      window.location.assign(
+                        `/hackathons/${id}/runs/${runId}/projects/${e.team_number}`
+                      )
+                    }
+                  >
+                    <TableCell className="font-medium">{e.rank}</TableCell>
+                    <TableCell className="max-w-[150px] truncate">
+                      {e.team_name}
+                    </TableCell>
+                    <TableCell className="max-w-[180px] truncate">
+                      {e.project_name}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {e.weighted_total.toFixed(1)}
+                    </TableCell>
+                    {criteriaKeys.map((k) => (
+                      <TableCell key={k} className="text-right tabular-nums">
+                        {e.scores[k]?.toFixed(1) ?? "-"}
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-right tabular-nums">
+                      {e.total_loc.toLocaleString()}
+                    </TableCell>
+                    <TableCell>{e.primary_language}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {e.integration_depth}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="w-8 text-muted-foreground/50 group-hover:text-foreground transition-colors">
+                      <ChevronRight className="size-4" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       )}
     </div>
