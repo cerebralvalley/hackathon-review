@@ -38,7 +38,7 @@ class CodeReviewConfig(BaseModel):
 
 class VideoAnalysisConfig(BaseModel):
     provider: str = "gemini"
-    model: str = "gemini-3-flash-preview"
+    model: str = "gemini-3.1-pro-preview"
     max_video_duration: int = 300  # trim videos longer than this (seconds)
     score_criteria: list[str] = Field(default_factory=list)
 

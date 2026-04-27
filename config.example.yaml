@@ -45,7 +45,7 @@ code_review:
 # Video analysis provider (Gemini native video upload)
 video_analysis:
   provider: "gemini"
-  model: "gemini-3-flash-preview"
+  model: "gemini-3.1-pro-preview"
   max_video_duration: 300        # trim videos longer than this (seconds)
 
   # Extra scoring criteria the video analysis should evaluate.

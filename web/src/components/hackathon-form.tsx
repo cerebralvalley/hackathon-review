@@ -87,7 +87,7 @@ export function HackathonForm({ initial, submitLabel, onSubmit, onCancel }: Prop
     String(configVal(cfg, "video_analysis", "provider") || "gemini")
   );
   const [videoModel, setVideoModel] = useState(
-    String(configVal(cfg, "video_analysis", "model") || "gemini-3-flash-preview")
+    String(configVal(cfg, "video_analysis", "model") || "gemini-3.1-pro-preview")
   );
   const initialBundles = useMemo<string[]>(() => {
     const explicit = configVal(cfg, "static_analysis", "pattern_bundles");

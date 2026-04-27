@@ -266,7 +266,7 @@ Omit `prompt_preamble` and `review_sections` for generic defaults (What it does,
 ```yaml
 video_analysis:
   provider: "gemini"
-  model: "gemini-3-flash-preview"
+  model: "gemini-3.1-pro-preview"
   max_video_duration: 120
   score_criteria:             # keys from scoring.criteria
     - "storytelling"
@@ -310,7 +310,7 @@ code_review:
 
 video_analysis:
   provider: "gemini"
-  model: "gemini-3-flash-preview"
+  model: "gemini-3.1-pro-preview"
 ```
 
 If you use Gemini for both, you only need a `GEMINI_API_KEY` — no Anthropic key required.

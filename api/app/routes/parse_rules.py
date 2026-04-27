@@ -91,7 +91,7 @@ def _parse_with_gemini(rules_text: str, api_key: str) -> dict:
 
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-3-flash-preview",
+        model="gemini-3.1-pro-preview",
         contents=f"{SYSTEM_PROMPT}\n\n---\n\n{rules_text}",
         config={"response_mime_type": "application/json"},
     )
