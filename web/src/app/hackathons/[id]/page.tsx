@@ -850,20 +850,33 @@ function OutreachInlineList({
     setRetrying((p) => new Set([...p, key]));
     try {
       await runsApi.retry(runId, stage, [team.team_number]);
-      // Retry runs in a background thread — wait briefly then refresh.
-      setTimeout(onSaved, 2500);
+      // Retry runs in a FastAPI background thread, so the POST returns
+      // before the actual fetch completes. Poll the run until the team
+      // is no longer in stage_detail[stage].failures (the retry handler
+      // removes it whether the retry succeeded or failed). Cap at 90s so
+      // a hung yt-dlp doesn't pin the spinner forever.
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        try {
+          const r = await runsApi.get(runId);
+          const failures = r.stage_detail?.[stage]?.failures ?? [];
+          if (!failures.some((f) => f.team_number === team.team_number)) {
+            break;
+          }
+        } catch {
+          // transient — keep polling
+        }
+      }
+      onSaved();
     } catch (err) {
       alert(String(err));
     } finally {
-      setTimeout(
-        () =>
-          setRetrying((p) => {
-            const next = new Set(p);
-            next.delete(key);
-            return next;
-          }),
-        2500,
-      );
+      setRetrying((p) => {
+        const next = new Set(p);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
