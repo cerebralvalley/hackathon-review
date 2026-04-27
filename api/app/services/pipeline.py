@@ -105,6 +105,7 @@ def _build_review_config(
     cfg.output_dir = output_dir
     cfg.repos_dir_override = storage.hackathon_repos_dir(hackathon.id)
     cfg.videos_dir_override = storage.hackathon_videos_dir(hackathon.id)
+    cfg.cache_dir_override = storage.hackathon_dir(hackathon.id) / "cache"
     cfg.ensure_dirs()
 
     return cfg

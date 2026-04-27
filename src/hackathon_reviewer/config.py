@@ -112,6 +112,15 @@ class ReviewConfig(BaseModel):
     # CLI mode leaves these as None and falls back to per-output_dir paths.
     repos_dir_override: Path | None = None
     videos_dir_override: Path | None = None
+    # Where the LLM analysis cache (code review + video analysis results)
+    # is stored. Set to a hackathon-level directory in web mode so re-runs
+    # reuse cached LLM output when (config + input) signature matches. CLI
+    # mode leaves it None to disable caching.
+    cache_dir_override: Path | None = None
+
+    @property
+    def cache_dir(self) -> Path | None:
+        return self.cache_dir_override
 
     @property
     def data_dir(self) -> Path:
@@ -140,8 +149,11 @@ class ReviewConfig(BaseModel):
     def ensure_dirs(self) -> None:
         """Create all output directories and resolve to absolute paths."""
         self.output_dir = self.output_dir.resolve()
-        for d in [self.data_dir, self.repos_dir, self.videos_dir,
-                  self.reports_dir, self.reports_dir / "projects"]:
+        dirs = [self.data_dir, self.repos_dir, self.videos_dir,
+                self.reports_dir, self.reports_dir / "projects"]
+        if self.cache_dir is not None:
+            dirs.append(self.cache_dir)
+        for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
 
 

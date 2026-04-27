@@ -141,14 +141,17 @@ def clear_hackathon_cache(hackathon_id: str, db: Session = Depends(get_db)):
     runs_dir = storage.hackathon_dir(hackathon_id) / "runs"
     if runs_dir.exists():
         shutil.rmtree(runs_dir, ignore_errors=True)
-    # Also wipe the hackathon-level shared cache (cloned repos + videos)
-    # so the next run starts from a fully clean slate.
+    # Also wipe the hackathon-level shared cache (cloned repos + videos +
+    # cached LLM analysis) so the next run starts from a fully clean slate.
     repos_dir = storage.hackathon_repos_dir(hackathon_id)
     if repos_dir.exists():
         shutil.rmtree(repos_dir, ignore_errors=True)
     videos_dir = storage.hackathon_videos_dir(hackathon_id)
     if videos_dir.exists():
         shutil.rmtree(videos_dir, ignore_errors=True)
+    llm_cache_dir = storage.hackathon_dir(hackathon_id) / "cache"
+    if llm_cache_dir.exists():
+        shutil.rmtree(llm_cache_dir, ignore_errors=True)
 
     return {"deleted_runs": deleted_rows}
 

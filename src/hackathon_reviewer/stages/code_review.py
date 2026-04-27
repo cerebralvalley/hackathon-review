@@ -136,6 +136,30 @@ def _review_one(
 _save_lock = threading.Lock()
 
 
+def _code_review_config_sig(cfg: ReviewConfig) -> str:
+    from hackathon_reviewer.utils.llm_cache import stable_hash
+    return stable_hash({
+        "provider": cfg.code_review.provider,
+        "model": cfg.code_review.model,
+        "max_tokens": cfg.code_review.max_tokens,
+        "max_source_chars": cfg.code_review.max_source_chars,
+        "prompt_preamble": cfg.code_review.prompt_preamble,
+        "review_sections": [
+            {"name": s.name, "instruction": s.instruction}
+            for s in cfg.code_review.review_sections
+        ],
+    })
+
+
+def _code_review_input_sig(sub: Submission, repo_dir: Path) -> str | None:
+    """Bind cache entry to the actual repo content + project description."""
+    from hackathon_reviewer.utils.llm_cache import repo_head_sha, stable_hash
+    sha = repo_head_sha(repo_dir)
+    if not sha:
+        return None
+    return stable_hash({"head": sha, "description": sub.description or ""})
+
+
 def run_code_review(
     cfg: ReviewConfig,
     submissions: list[Submission],
@@ -145,6 +169,8 @@ def run_code_review(
     progress: "Any | None" = None,
 ) -> list[CodeReviewResult]:
     """Run LLM code review on all submissions in parallel, save to JSON."""
+    from hackathon_reviewer.utils.llm_cache import LLMCache
+
     workers = cfg.concurrency.llm_concurrent_requests
     click.echo("\n--- Stage 5: LLM Code Review ---")
     click.echo(f"  Provider: {cfg.code_review.provider} ({cfg.code_review.model})")
@@ -161,21 +187,45 @@ def run_code_review(
         existing = {r.team_number: r for r in _load_reviews_file(out_path)}
         click.echo(f"  Resuming: {len(existing)} already reviewed")
 
+    cache = LLMCache(cfg.cache_dir, "code_review")
+    config_sig = _code_review_config_sig(cfg)
+    cache_hits = 0
+
     results_map: dict[int, CodeReviewResult] = {}
     work: list[Submission] = []
 
     for sub in submissions:
         if resume and sub.team_number in existing and existing[sub.team_number].success:
             results_map[sub.team_number] = existing[sub.team_number]
-        else:
-            meta = meta_by_team.get(sub.team_number)
-            static = static_by_team.get(sub.team_number)
-            if not meta or not static:
-                results_map[sub.team_number] = CodeReviewResult(
-                    team_number=sub.team_number, error="missing_data",
-                )
-            else:
-                work.append(sub)
+            continue
+
+        meta = meta_by_team.get(sub.team_number)
+        static = static_by_team.get(sub.team_number)
+        if not meta or not static:
+            results_map[sub.team_number] = CodeReviewResult(
+                team_number=sub.team_number, error="missing_data",
+            )
+            continue
+
+        # Try the hackathon-level cache before scheduling the LLM call.
+        if cache.enabled and meta.clone_success:
+            repo_dir = cfg.repos_dir / sub.sanitized_name
+            input_sig = _code_review_input_sig(sub, repo_dir)
+            if input_sig:
+                cached = cache.load(sub.team_number, config_sig, input_sig)
+                if cached is not None:
+                    try:
+                        results_map[sub.team_number] = CodeReviewResult(**cached)
+                        cache_hits += 1
+                        continue
+                    except Exception:
+                        # Corrupt cache entry — fall through to fresh review.
+                        pass
+
+        work.append(sub)
+
+    if cache_hits:
+        click.echo(f"  Cache hits: {cache_hits} (skipping LLM)")
 
     total_input_tokens = 0
     total_output_tokens = 0
@@ -198,6 +248,15 @@ def run_code_review(
             if result.success:
                 total_input_tokens += result.input_tokens
                 total_output_tokens += result.output_tokens
+                # Save to hackathon-level cache for future re-runs.
+                if cache.enabled:
+                    sub = next((s for s in work if s.team_number == team_num), None)
+                    meta = meta_by_team.get(team_num)
+                    if sub and meta and meta.clone_success:
+                        repo_dir = cfg.repos_dir / sub.sanitized_name
+                        input_sig = _code_review_input_sig(sub, repo_dir)
+                        if input_sig:
+                            cache.save(team_num, config_sig, input_sig, result.model_dump(mode="json"))
             completed += 1
             if not result.success and progress:
                 sub = next((s for s in work if s.team_number == team_num), None)

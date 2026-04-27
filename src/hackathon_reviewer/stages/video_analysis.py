@@ -114,6 +114,28 @@ def _analyze_one(
 _save_lock = threading.Lock()
 
 
+def _video_analysis_config_sig(cfg: ReviewConfig) -> str:
+    from hackathon_reviewer.utils.llm_cache import stable_hash
+    return stable_hash({
+        "provider": cfg.video_analysis.provider,
+        "model": cfg.video_analysis.model,
+        "max_video_duration": cfg.video_analysis.max_video_duration,
+        "score_criteria": sorted(cfg.video_analysis.score_criteria or []),
+    })
+
+
+def _video_analysis_input_sig(
+    sub: Submission, download: VideoDownloadResult
+) -> str | None:
+    from hackathon_reviewer.utils.llm_cache import stable_hash, video_file_signature
+    if not download or not download.success or not download.file_path:
+        return None
+    file_sig = video_file_signature(download.file_path)
+    if not file_sig:
+        return None
+    return stable_hash({"file": file_sig, "description": sub.description or ""})
+
+
 def run_video_analysis(
     cfg: ReviewConfig,
     submissions: list[Submission],
@@ -122,6 +144,8 @@ def run_video_analysis(
     progress: "Any | None" = None,
 ) -> list[VideoAnalysisResult]:
     """Run Gemini video analysis on all downloaded videos in parallel."""
+    from hackathon_reviewer.utils.llm_cache import LLMCache
+
     click.echo("\n--- Stage 6: Video Analysis ---")
     workers = cfg.concurrency.llm_concurrent_requests
     click.echo(f"  Provider: {cfg.video_analysis.provider} ({cfg.video_analysis.model})")
@@ -136,14 +160,36 @@ def run_video_analysis(
         existing = {r.team_number: r for r in _load_analysis_file(out_path)}
         click.echo(f"  Resuming: {len(existing)} already analyzed")
 
+    cache = LLMCache(cfg.cache_dir, "video_analysis")
+    config_sig = _video_analysis_config_sig(cfg)
+    cache_hits = 0
+
     results_map: dict[int, VideoAnalysisResult] = {}
     work: list[Submission] = []
 
     for sub in submissions:
         if resume and sub.team_number in existing and existing[sub.team_number].analysis_success:
             results_map[sub.team_number] = existing[sub.team_number]
-        else:
-            work.append(sub)
+            continue
+
+        # Try the hackathon-level cache before scheduling the LLM call.
+        if cache.enabled:
+            download = video_downloads.get(sub.team_number)
+            input_sig = _video_analysis_input_sig(sub, download) if download else None
+            if input_sig:
+                cached = cache.load(sub.team_number, config_sig, input_sig)
+                if cached is not None:
+                    try:
+                        results_map[sub.team_number] = VideoAnalysisResult(**cached)
+                        cache_hits += 1
+                        continue
+                    except Exception:
+                        pass
+
+        work.append(sub)
+
+    if cache_hits:
+        click.echo(f"  Cache hits: {cache_hits} (skipping LLM)")
 
     start = time.time()
     completed = 0
@@ -161,6 +207,13 @@ def run_video_analysis(
             team_num, result = future.result()
             results_map[team_num] = result
             completed += 1
+            if result.analysis_success and cache.enabled:
+                sub = next((s for s in work if s.team_number == team_num), None)
+                download = video_downloads.get(team_num)
+                if sub and download:
+                    input_sig = _video_analysis_input_sig(sub, download)
+                    if input_sig:
+                        cache.save(team_num, config_sig, input_sig, result.model_dump(mode="json"))
             if not result.analysis_success and progress:
                 sub = next((s for s in work if s.team_number == team_num), None)
                 if sub:
