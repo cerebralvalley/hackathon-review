@@ -121,6 +121,20 @@ KNOWN_UNDOWNLOADABLE_HOSTS: dict[str, str] = {
     ),
 }
 
+_DIRECT_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi")
+
+
+def is_direct_video_url(url: str) -> bool:
+    """Return True if the URL's path points at a media file we can fetch
+    directly. Hosts in KNOWN_UNDOWNLOADABLE_HOSTS are share-page hosts; if
+    the same host happens to expose a real .mp4 URL (e.g. Flexclip's CDN),
+    that URL is fine to attempt."""
+    try:
+        path = urlparse(url).path.lower()
+    except Exception:
+        return False
+    return path.endswith(_DIRECT_VIDEO_EXTENSIONS)
+
 
 def classify_video_url(raw_url: str) -> VideoInfo:
     url = raw_url.strip()
@@ -132,12 +146,13 @@ def classify_video_url(raw_url: str) -> VideoInfo:
 
     lower = url.lower()
 
-    for host, reason in KNOWN_UNDOWNLOADABLE_HOSTS.items():
-        if host in lower:
-            info.platform = VideoPlatform.CUSTOM
-            info.is_valid = False
-            info.issues.append(reason)
-            return info
+    if not is_direct_video_url(url):
+        for host, reason in KNOWN_UNDOWNLOADABLE_HOSTS.items():
+            if host in lower:
+                info.platform = VideoPlatform.CUSTOM
+                info.is_valid = False
+                info.issues.append(reason)
+                return info
 
     # Google Drive *folder* URLs aren't a single downloadable video — the team
     # meant to share an individual file. Catch this explicitly so the Outreach
