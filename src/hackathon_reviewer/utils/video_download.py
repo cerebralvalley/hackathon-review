@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -34,8 +35,22 @@ def download_ytdlp(url: str, output_path: Path) -> tuple[bool, str | None]:
             "--merge-output-format", "mp4",
             "-o", str(output_path),
             "--socket-timeout", "30",
-            url,
         ]
+        # Optional: handle age-restricted / sign-in-required videos by
+        # passing cookies. Two ways:
+        # 1) YTDLP_COOKIES_FILE=/path/to/cookies.txt — Netscape-format
+        #    cookies exported from a browser (most reliable on macOS where
+        #    Chrome's keychain blocks subprocess access).
+        # 2) YTDLP_COOKIES_FROM_BROWSER=chrome|firefox|safari|edge|brave —
+        #    yt-dlp reads cookies live from the browser. Doesn't work on
+        #    macOS Chrome v10 cookies (keychain-encrypted).
+        cookies_file = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
+        cookies_browser = os.environ.get("YTDLP_COOKIES_FROM_BROWSER", "").strip()
+        if cookies_file:
+            cmd += ["--cookies", cookies_file]
+        elif cookies_browser:
+            cmd += ["--cookies-from-browser", cookies_browser]
+        cmd.append(url)
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT)
         if proc.returncode == 0 and output_path.exists():
             return True, None
