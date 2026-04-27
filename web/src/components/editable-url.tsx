@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Pencil, Save, X } from "lucide-react";
-import { hackathons as hackathonsApi } from "@/lib/api";
+import { hackathons as hackathonsApi, runs as runsApi } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 
 /**
@@ -10,8 +10,9 @@ import { Input } from "@/components/ui/input";
  *
  * On save: PATCHes the canonical CSV + every run's submissions.json,
  * purges stale clone/download artifacts, and re-classifies the new URL.
- * Calls `onSaved()` after a valid save so the parent can re-fetch the
- * outreach list (the team often disappears).
+ * If `runId` is provided AND the new URL is valid, automatically triggers
+ * the appropriate stage retry (clone for github_url, video_download for
+ * video_url) and waits for it to complete before calling `onSaved`.
  */
 export function EditableUrl({
   hackathonId,
@@ -20,6 +21,7 @@ export function EditableUrl({
   label,
   initialUrl,
   onSaved,
+  runId,
 }: {
   hackathonId: string;
   teamNumber: number;
@@ -27,6 +29,7 @@ export function EditableUrl({
   label: string;
   initialUrl: string;
   onSaved: () => void;
+  runId?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(initialUrl);
@@ -34,6 +37,7 @@ export function EditableUrl({
   const [feedback, setFeedback] = useState<{
     valid: boolean;
     issues: string[];
+    retrying?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -50,15 +54,33 @@ export function EditableUrl({
         { [field]: value },
       );
       const info = field === "github_url" ? resp.github : resp.video;
-      if (info) {
-        setFeedback({ valid: info.is_valid, issues: info.issues });
-        if (info.is_valid) {
-          setTimeout(() => {
-            setEditing(false);
-            onSaved();
-          }, 600);
+      if (!info) return;
+
+      if (!info.is_valid) {
+        // URL parsed but classifier says it's still bad — keep the editor
+        // open with the actionable error so the user can iterate.
+        setFeedback({ valid: false, issues: info.issues });
+        return;
+      }
+
+      // URL is valid. If the parent provided a runId, auto-fire the
+      // appropriate stage retry so the new URL is actually attempted —
+      // keep the editor open showing "Retrying…" until the background
+      // worker finishes (poll-based completion in retryAndWait).
+      if (runId) {
+        const stage = field === "github_url" ? "clone" : "video_download";
+        setFeedback({ valid: true, issues: [], retrying: true });
+        try {
+          await runsApi.retryAndWait(runId, stage, teamNumber);
+        } catch {
+          // Retry call itself failed — leave the editor open so the
+          // user sees something happened (URL is still saved).
+          return;
         }
       }
+
+      setEditing(false);
+      onSaved();
     } catch (err) {
       alert(String(err));
     } finally {
@@ -149,7 +171,11 @@ export function EditableUrl({
           }`}
         >
           {feedback.valid
-            ? "✓ Valid — refreshing…"
+            ? feedback.retrying
+              ? `✓ Valid — retrying ${
+                  field === "github_url" ? "clone" : "video download"
+                }…`
+              : "✓ Valid — refreshing…"
             : `✗ ${feedback.issues[0] || "Still invalid"}`}
         </p>
       )}

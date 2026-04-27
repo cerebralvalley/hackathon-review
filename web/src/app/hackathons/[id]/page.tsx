@@ -974,6 +974,7 @@ function OutreachInlineList({
                     label="GitHub"
                     initialUrl={t.github_url}
                     onSaved={onSaved}
+                    runId={runId}
                   />
                   <EditableUrl
                     hackathonId={hackathonId}
@@ -982,6 +983,7 @@ function OutreachInlineList({
                     label="Video"
                     initialUrl={t.video_url}
                     onSaved={onSaved}
+                    runId={runId}
                   />
                 </div>
 

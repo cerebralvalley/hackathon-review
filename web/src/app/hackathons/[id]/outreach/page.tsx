@@ -300,6 +300,7 @@ export default function OutreachPage() {
                         label="GitHub"
                         initialUrl={team.github_url}
                         onSaved={refresh}
+                        runId={run?.id}
                       />
                       <EditableUrl
                         hackathonId={id}
@@ -308,6 +309,7 @@ export default function OutreachPage() {
                         label="Video"
                         initialUrl={team.video_url}
                         onSaved={refresh}
+                        runId={run?.id}
                       />
                     </div>
                   </div>

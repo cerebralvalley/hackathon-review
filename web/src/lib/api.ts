@@ -136,6 +136,38 @@ export const runs = {
     request<{ stage: string; exists: boolean; content: string; size: number }>(
       `/api/runs/${runId}/logs/${stage}`
     ),
+
+  /**
+   * Trigger a single-team retry and wait for the background worker to finish.
+   *
+   * The retry endpoint kicks off a FastAPI BackgroundTask and returns
+   * immediately, so callers that want to refresh the UI on real completion
+   * (rather than after a fixed delay) need to poll. retry_items removes the
+   * team from stage_detail.failures whether it succeeded or failed, so we
+   * watch for that as the "done" signal. 90s safety cap prevents hung
+   * downloads from pinning the spinner forever.
+   */
+  async retryAndWait(
+    runId: string,
+    stage: "clone" | "video_download" | "code_review" | "video_analysis",
+    teamNumber: number,
+    timeoutMs = 90_000
+  ): Promise<void> {
+    await runs.retry(runId, stage, [teamNumber]);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        const r = await runs.get(runId);
+        const failures = r.stage_detail?.[stage]?.failures ?? [];
+        if (!failures.some((f) => f.team_number === teamNumber)) {
+          return;
+        }
+      } catch {
+        // transient — keep polling
+      }
+    }
+  },
 };
 
 // Parse rules
