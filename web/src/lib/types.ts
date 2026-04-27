@@ -74,6 +74,27 @@ export interface Flag {
   severity: "error" | "warning" | "info";
 }
 
+export interface OutreachTeamMember {
+  name: string;
+  email: string;
+}
+
+export interface OutreachIssue {
+  type: string;
+  label: string;
+  description: string;
+}
+
+export interface OutreachTeam {
+  team_number: number;
+  team_name: string;
+  project_name: string;
+  members: OutreachTeamMember[];
+  issues: OutreachIssue[];
+  github_url: string;
+  video_url: string;
+}
+
 export interface PatternBundle {
   id: string;
   label: string;

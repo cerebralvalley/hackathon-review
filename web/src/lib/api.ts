@@ -5,6 +5,7 @@ import type {
   LeaderboardEntry,
   ProjectSummary,
   Flag,
+  OutreachTeam,
   PatternBundle,
   PatternPreset,
 } from "./types";
@@ -137,4 +138,7 @@ export const results = {
 
   flags: (runId: string) =>
     request<Flag[]>(`/api/runs/${runId}/results/flags`),
+
+  outreach: (runId: string) =>
+    request<OutreachTeam[]>(`/api/runs/${runId}/results/outreach`),
 };

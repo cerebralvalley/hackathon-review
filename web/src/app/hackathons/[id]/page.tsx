@@ -8,7 +8,13 @@ import {
   results as resultsApi,
   runs as runsApi,
 } from "@/lib/api";
-import type { Flag, Hackathon, LeaderboardEntry, PipelineRun } from "@/lib/types";
+import type {
+  Flag,
+  Hackathon,
+  LeaderboardEntry,
+  OutreachTeam,
+  PipelineRun,
+} from "@/lib/types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -400,22 +406,26 @@ function ResultsSection({
 }) {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
   const [flags, setFlags] = useState<Flag[] | null>(null);
+  const [outreach, setOutreach] = useState<OutreachTeam[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!latestCompletedRun) {
       setLeaderboard(null);
       setFlags(null);
+      setOutreach(null);
       return;
     }
     setLoading(true);
     Promise.all([
       resultsApi.leaderboard(latestCompletedRun.id),
       resultsApi.flags(latestCompletedRun.id),
+      resultsApi.outreach(latestCompletedRun.id),
     ])
-      .then(([lb, fl]) => {
+      .then(([lb, fl, ot]) => {
         setLeaderboard(lb);
         setFlags(fl);
+        setOutreach(ot);
       })
       .finally(() => setLoading(false));
   }, [latestCompletedRun?.id]);
@@ -490,6 +500,14 @@ function ResultsSection({
                 </span>
               )}
             </TabsTrigger>
+            <TabsTrigger value="outreach">
+              Outreach
+              {outreach && (
+                <span className="ml-1.5 text-xs text-muted-foreground">
+                  {outreach.length}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="leaderboard" className="mt-4">
@@ -549,6 +567,27 @@ function ResultsSection({
                 </div>
                 <FlagsList flags={flags} />
               </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="outreach" className="mt-4">
+            <Link
+              href={`/hackathons/${hackathonId}/outreach`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "mb-3"
+              )}
+            >
+              View full outreach →
+            </Link>
+            {loading ? (
+              <p className="text-sm text-muted-foreground py-6">Loading...</p>
+            ) : !outreach || outreach.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6">
+                Every team's repo and video processed cleanly — no outreach needed.
+              </p>
+            ) : (
+              <OutreachInlineList teams={outreach} />
             )}
           </TabsContent>
         </Tabs>
@@ -625,6 +664,51 @@ function LeaderboardTable({
           ))}
         </TableBody>
       </Table>
+    </div>
+  );
+}
+
+function OutreachInlineList({ teams }: { teams: OutreachTeam[] }) {
+  return (
+    <div className="rounded-md border divide-y max-h-[480px] overflow-auto">
+      {teams.map((t) => {
+        const issueLabels = t.issues.map((i) => i.label).join(", ");
+        const memberCount = t.members.length;
+        return (
+          <div
+            key={t.team_number}
+            className="flex items-start gap-3 p-3 text-sm"
+          >
+            <span className="font-mono text-xs text-muted-foreground mt-0.5 shrink-0">
+              #{t.team_number}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium truncate">
+                  {t.team_name}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  · {memberCount} member{memberCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                {issueLabels}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1 justify-end shrink-0">
+              {t.issues.map((i) => (
+                <Badge
+                  key={i.type}
+                  variant="destructive"
+                  className="text-[10px]"
+                >
+                  {i.type.replace(/_/g, " ")}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -260,3 +260,79 @@ def get_flags(run_id: str, db: Session = Depends(get_db)):
                     ))
 
     return flags
+
+
+# ---------------------------------------------------------------------------
+# Outreach — failed submissions with team contact info, for organizers to
+# email teams whose repos / videos couldn't be processed.
+# ---------------------------------------------------------------------------
+
+@router.get("/outreach")
+def get_outreach(run_id: str, db: Session = Depends(get_db)):
+    """Per-team breakdown of submissions that need organizer follow-up.
+
+    A team appears here only if at least one of: invalid GitHub URL, clone
+    failed, invalid video URL, or video download failed. Returns the team
+    info, member emails, and the original URLs they submitted, so an
+    organizer can email them directly.
+    """
+    run = _get_run_or_404(run_id, db)
+    data = _data_dir(run)
+
+    submissions = _load_json(data / "submissions.json")
+    repo_meta = {m["team_number"]: m for m in _load_json(data / "repo_metadata.json")}
+    video_results = {v["team_number"]: v for v in _load_json(data / "video_analysis.json")}
+
+    out = []
+    for sub in submissions:
+        tn = sub["team_number"]
+        issues: list[dict] = []
+
+        gh = sub.get("github", {})
+        meta = repo_meta.get(tn, {})
+        if not gh.get("is_valid"):
+            details = ", ".join(gh.get("issues", [])) or "URL did not match GitHub format"
+            issues.append({
+                "type": "invalid_github_url",
+                "label": "GitHub URL invalid",
+                "description": details,
+            })
+        elif meta and not meta.get("clone_success"):
+            issues.append({
+                "type": "clone_failed",
+                "label": "Repo clone failed",
+                "description": meta.get("clone_error") or "Could not clone repository",
+            })
+
+        vid = sub.get("video", {})
+        video = video_results.get(tn, {})
+        if not vid.get("is_valid"):
+            details = ", ".join(vid.get("issues", [])) or "URL did not match a known video host"
+            issues.append({
+                "type": "invalid_video_url",
+                "label": "Video URL invalid",
+                "description": details,
+            })
+        elif video:
+            dl = video.get("download", {})
+            if not dl.get("success"):
+                issues.append({
+                    "type": "video_download_failed",
+                    "label": "Video download failed",
+                    "description": dl.get("error") or "Could not download video",
+                })
+
+        if not issues:
+            continue
+
+        out.append({
+            "team_number": tn,
+            "team_name": sub.get("team_name", ""),
+            "project_name": sub.get("project_name", ""),
+            "members": sub.get("members", []),
+            "issues": issues,
+            "github_url": gh.get("original", ""),
+            "video_url": vid.get("original", ""),
+        })
+
+    return out
