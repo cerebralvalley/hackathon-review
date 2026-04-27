@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import csv
+import io
 import shutil
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.app.database import get_db
@@ -154,6 +156,108 @@ def clear_hackathon_cache(hackathon_id: str, db: Session = Depends(get_db)):
         shutil.rmtree(llm_cache_dir, ignore_errors=True)
 
     return {"deleted_runs": deleted_rows}
+
+
+class SubmissionUpdate(BaseModel):
+    github_url: str | None = None
+    video_url: str | None = None
+
+
+def _resolve_column(
+    field: str,
+    cfg_columns: dict,
+    headers: list[str],
+) -> str | None:
+    """Resolve a column name from configured mapping, then auto-detect aliases."""
+    from hackathon_reviewer.stages.parse import _auto_detect_columns
+    configured = cfg_columns.get(field)
+    if configured and configured in headers:
+        return configured
+    auto = _auto_detect_columns(headers)
+    return auto.get(field)
+
+
+@router.patch("/{hackathon_id}/submissions/{team_number}")
+def update_submission_urls(
+    hackathon_id: str,
+    team_number: int,
+    body: SubmissionUpdate,
+    db: Session = Depends(get_db),
+):
+    """Edit the GitHub URL or video URL for a single team in the uploaded CSV.
+
+    Useful when an organizer is doing outreach: a team submits a wrong URL,
+    you ask them for the right one over email, and you want to fix it
+    without re-exporting the CSV. Updates are written back to the canonical
+    CSV file on disk and the new URLs are re-classified so the response
+    immediately tells you whether the new value is valid (and if not, why).
+
+    To pick up the new URLs in the rest of the pipeline, re-run the
+    pipeline. The hackathon-level shared cache means only the changed
+    teams re-clone / re-download / re-LLM.
+    """
+    h = db.get(Hackathon, hackathon_id)
+    if not h:
+        raise HTTPException(404, "Hackathon not found")
+    if not h.csv_filename:
+        raise HTTPException(400, "No CSV uploaded")
+    if body.github_url is None and body.video_url is None:
+        raise HTTPException(400, "Provide github_url and/or video_url")
+
+    csv_file = storage.csv_path(hackathon_id, h.csv_filename)
+    if not csv_file.exists():
+        raise HTTPException(404, "CSV file missing on disk")
+
+    from hackathon_reviewer.stages.parse import (
+        _find_header_row,
+        classify_github_url,
+        classify_video_url,
+    )
+
+    # Preserve any pre-header lines verbatim (e.g. "PROJECTS TABLE" labels).
+    with open(csv_file, "r", encoding="utf-8", newline="") as f:
+        raw_lines = f.readlines()
+    skip_rows = _find_header_row(csv_file)
+    prefix_lines = raw_lines[:skip_rows]
+    csv_text = "".join(raw_lines[skip_rows:])
+
+    reader = csv.DictReader(io.StringIO(csv_text))
+    fieldnames = list(reader.fieldnames or [])
+    rows = list(reader)
+
+    if team_number < 1 or team_number > len(rows):
+        raise HTTPException(404, f"Team #{team_number} not found in CSV")
+
+    cfg_columns = (h.config or {}).get("columns", {}) or {}
+    github_col = _resolve_column("github_url", cfg_columns, fieldnames)
+    video_col = _resolve_column("video_url", cfg_columns, fieldnames)
+
+    target = rows[team_number - 1]
+    if body.github_url is not None:
+        if not github_col:
+            raise HTTPException(400, "No GitHub URL column found in this CSV")
+        target[github_col] = body.github_url
+    if body.video_url is not None:
+        if not video_col:
+            raise HTTPException(400, "No video URL column found in this CSV")
+        target[video_col] = body.video_url
+
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    new_text = out.getvalue()
+
+    with open(csv_file, "w", encoding="utf-8", newline="") as f:
+        f.writelines(prefix_lines)
+        f.write(new_text)
+
+    response: dict = {"team_number": team_number}
+    if body.github_url is not None:
+        response["github"] = classify_github_url(body.github_url).model_dump(mode="json")
+    if body.video_url is not None:
+        response["video"] = classify_video_url(body.video_url).model_dump(mode="json")
+    return response
 
 
 @router.get("/{hackathon_id}/csv/preview")

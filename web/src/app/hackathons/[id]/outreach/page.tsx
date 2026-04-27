@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Copy, Mail } from "lucide-react";
+import { ArrowLeft, Copy, Mail, Pencil, Save, X } from "lucide-react";
 import {
   hackathons as hackathonsApi,
   results as resultsApi,
@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 function buildMailto(team: OutreachTeam, hackathonName: string) {
   const emails = team.members
@@ -76,15 +77,20 @@ export default function OutreachPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    Promise.all([hackathonsApi.get(id), runsApi.list(id)])
-      .then(async ([h, runs]) => {
+  const refresh = useMemo(
+    () => async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [h, runs] = await Promise.all([
+          hackathonsApi.get(id),
+          runsApi.list(id),
+        ]);
         setHackathon(h);
-        const latest = runs.find((r) => r.status === "completed")
-          ?? runs.find((r) => r.status === "interrupted")
-          ?? runs[0];
+        const latest =
+          runs.find((r) => r.status === "completed") ??
+          runs.find((r) => r.status === "interrupted") ??
+          runs[0];
         if (!latest) {
           setRun(null);
           setTeams([]);
@@ -93,10 +99,18 @@ export default function OutreachPage() {
         setRun(latest);
         const data = await resultsApi.outreach(latest.id);
         setTeams(data);
-      })
-      .catch((err) => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, [id]);
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [id]
+  );
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   const issueCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -275,36 +289,26 @@ export default function OutreachPage() {
                         </ul>
                       )}
                     </div>
-                    <div className="space-y-0.5">
-                      <div className="text-muted-foreground uppercase tracking-wide text-[10px] mb-0.5">
-                        Submitted URLs
+                    <div className="space-y-1">
+                      <div className="text-muted-foreground uppercase tracking-wide text-[10px]">
+                        Submitted URLs <span className="normal-case font-normal">(click pencil to fix)</span>
                       </div>
-                      {team.github_url && (
-                        <div className="truncate">
-                          <span className="text-muted-foreground">GitHub: </span>
-                          <a
-                            href={team.github_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:underline"
-                          >
-                            {team.github_url}
-                          </a>
-                        </div>
-                      )}
-                      {team.video_url && (
-                        <div className="truncate">
-                          <span className="text-muted-foreground">Video: </span>
-                          <a
-                            href={team.video_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:underline"
-                          >
-                            {team.video_url}
-                          </a>
-                        </div>
-                      )}
+                      <EditableUrl
+                        hackathonId={id}
+                        teamNumber={team.team_number}
+                        field="github_url"
+                        label="GitHub"
+                        initialUrl={team.github_url}
+                        onSaved={refresh}
+                      />
+                      <EditableUrl
+                        hackathonId={id}
+                        teamNumber={team.team_number}
+                        field="video_url"
+                        label="Video"
+                        initialUrl={team.video_url}
+                        onSaved={refresh}
+                      />
                     </div>
                   </div>
                 </CardContent>
@@ -312,6 +316,146 @@ export default function OutreachPage() {
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+function EditableUrl({
+  hackathonId,
+  teamNumber,
+  field,
+  label,
+  initialUrl,
+  onSaved,
+}: {
+  hackathonId: string;
+  teamNumber: number;
+  field: "github_url" | "video_url";
+  label: string;
+  initialUrl: string;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(initialUrl);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    valid: boolean;
+    issues: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    setValue(initialUrl);
+  }, [initialUrl]);
+
+  async function save() {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const resp = await hackathonsApi.updateSubmission(hackathonId, teamNumber, {
+        [field]: value,
+      });
+      const info = field === "github_url" ? resp.github : resp.video;
+      if (info) {
+        setFeedback({ valid: info.is_valid, issues: info.issues });
+        if (info.is_valid) {
+          // Clean URL accepted — collapse the editor and refresh the
+          // outreach list (this team may now disappear from it).
+          setTimeout(() => {
+            setEditing(false);
+            onSaved();
+          }, 600);
+        }
+      }
+    } catch (err) {
+      alert(String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancel() {
+    setValue(initialUrl);
+    setFeedback(null);
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-start gap-1.5">
+        <span className="text-muted-foreground shrink-0">{label}:</span>
+        <span className="min-w-0 flex-1 truncate">
+          {initialUrl ? (
+            <a
+              href={initialUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="hover:underline"
+            >
+              {initialUrl}
+            </a>
+          ) : (
+            <span className="text-muted-foreground italic">(none)</span>
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+          title={`Edit ${label} URL`}
+        >
+          <Pencil className="size-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-muted-foreground shrink-0">{label}:</span>
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !saving) save();
+            if (e.key === "Escape") cancel();
+          }}
+          className="h-7 text-xs flex-1"
+          autoFocus
+          disabled={saving}
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || value.trim() === initialUrl.trim()}
+          className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
+          title="Save"
+        >
+          <Save className="size-3" />
+        </button>
+        <button
+          type="button"
+          onClick={cancel}
+          disabled={saving}
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+          title="Cancel"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+      {feedback && (
+        <p
+          className={`text-[11px] ${
+            feedback.valid
+              ? "text-green-600 dark:text-green-500"
+              : "text-destructive"
+          }`}
+        >
+          {feedback.valid
+            ? "✓ Valid — refreshing…"
+            : `✗ ${feedback.issues[0] || "Still invalid"}`}
+        </p>
       )}
     </div>
   );

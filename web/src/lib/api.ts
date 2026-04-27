@@ -76,6 +76,25 @@ export const hackathons = {
       offset: number;
       limit: number;
     }>(`/api/hackathons/${id}/csv/preview?offset=${offset}&limit=${limit}`),
+
+  updateSubmission: (
+    id: string,
+    teamNumber: number,
+    body: { github_url?: string; video_url?: string }
+  ) =>
+    request<{
+      team_number: number;
+      github?: { original: string; is_valid: boolean; issues: string[] };
+      video?: {
+        original: string;
+        platform: string;
+        is_valid: boolean;
+        issues: string[];
+      };
+    }>(`/api/hackathons/${id}/submissions/${teamNumber}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };
 
 // Pipeline runs
