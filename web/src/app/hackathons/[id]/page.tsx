@@ -315,6 +315,9 @@ export default function HackathonDetailPage() {
                     type="file"
                     accept=".csv"
                     onChange={handleUpload}
+                    onClick={(e) => {
+                      (e.target as HTMLInputElement).value = "";
+                    }}
                     className="hidden"
                   />
                 </label>
@@ -330,6 +333,9 @@ export default function HackathonDetailPage() {
                 type="file"
                 accept=".csv"
                 onChange={handleUpload}
+                onClick={(e) => {
+                  (e.target as HTMLInputElement).value = "";
+                }}
                 className="hidden"
               />
             </label>
