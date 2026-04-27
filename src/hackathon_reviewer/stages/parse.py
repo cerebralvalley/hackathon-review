@@ -139,6 +139,19 @@ def classify_video_url(raw_url: str) -> VideoInfo:
             info.issues.append(reason)
             return info
 
+    # Google Drive *folder* URLs aren't a single downloadable video — the team
+    # meant to share an individual file. Catch this explicitly so the Outreach
+    # view shows an actionable message instead of "could_not_extract_drive_file_id".
+    if "drive.google.com" in lower and "/folders/" in lower:
+        info.platform = VideoPlatform.GOOGLE_DRIVE
+        info.is_valid = False
+        info.issues.append(
+            "Google Drive folder URL — share the specific video file instead "
+            "(File → Share → Anyone with the link, then copy the file's URL "
+            "ending in /view), not the folder."
+        )
+        return info
+
     platform_checks: list[tuple[list[str], VideoPlatform]] = [
         (["youtu.be", "youtube.com"], VideoPlatform.YOUTUBE),
         (["loom.com"], VideoPlatform.LOOM),

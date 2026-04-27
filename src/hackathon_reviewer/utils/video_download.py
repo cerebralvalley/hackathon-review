@@ -43,6 +43,13 @@ def download_ytdlp(url: str, output_path: Path) -> tuple[bool, str | None]:
 
 def download_gdown(url: str, output_path: Path) -> tuple[bool, str | None]:
     """Download a Google Drive video using gdown. Returns (success, error)."""
+    if "/folders/" in url.lower():
+        return False, (
+            "Google Drive folder URL — not a single downloadable video. Ask "
+            "the team to share the specific file URL (ending in /view), not "
+            "the folder."
+        )
+
     try:
         import gdown
 
