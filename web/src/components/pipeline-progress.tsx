@@ -9,6 +9,27 @@ import { Button } from "@/components/ui/button";
 
 const RETRYABLE_STAGES = new Set(["clone", "video_download", "code_review", "video_analysis"]);
 
+function formatDuration(ms: number): string {
+  if (ms < 0) ms = 0;
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${total}s`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+/** Re-renders every second so live elapsed counters tick. */
+function useTick(active: boolean) {
+  const [, setN] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setN((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+}
+
 function StageLogs({
   runId,
   stage,
@@ -130,6 +151,24 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
         {done}/{total}
       </span>
     </div>
+  );
+}
+
+function StageTiming({
+  detail,
+}: {
+  detail: { done: number; total: number; started_at?: string };
+}) {
+  if (!detail.started_at || !detail.total || !detail.done) return null;
+  const startedMs = new Date(detail.started_at).getTime();
+  if (Number.isNaN(startedMs)) return null;
+  const elapsedMs = Date.now() - startedMs;
+  const remaining = detail.total - detail.done;
+  const etaMs = (elapsedMs / detail.done) * remaining;
+  return (
+    <span className="text-[11px] text-muted-foreground tabular-nums">
+      {formatDuration(elapsedMs)} elapsed · ETA ~{formatDuration(etaMs)}
+    </span>
   );
 }
 
@@ -294,6 +333,24 @@ export function PipelineProgress({ run: initialRun, onUpdate }: Props) {
   const completedStages = Object.values(progress).filter((s) => s === "completed").length;
   const pipelineActive = run.status === "pending" || run.status === "running";
 
+  // Re-render every second while the run is active so elapsed counters tick.
+  useTick(pipelineActive);
+
+  // Run-level duration / elapsed.
+  const startedMs = run.started_at ? new Date(run.started_at).getTime() : null;
+  const completedMs = run.completed_at
+    ? new Date(run.completed_at).getTime()
+    : null;
+  const runDurationMs = startedMs
+    ? (completedMs ?? Date.now()) - startedMs
+    : null;
+  const runDurationLabel =
+    runDurationMs != null
+      ? completedMs
+        ? `completed in ${formatDuration(runDurationMs)}`
+        : `${formatDuration(runDurationMs)} elapsed`
+      : null;
+
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2 mb-3">
@@ -311,6 +368,9 @@ export function PipelineProgress({ run: initialRun, onUpdate }: Props) {
         >
           {run.status}
         </Badge>
+        {runDurationLabel && (
+          <span className="text-xs text-muted-foreground">{runDurationLabel}</span>
+        )}
         {pipelineActive && (
           <Button
             size="sm"
@@ -378,8 +438,9 @@ export function PipelineProgress({ run: initialRun, onUpdate }: Props) {
                 </div>
               </div>
               {isRunning && stageDetail && stageDetail.total > 0 && (
-                <div className="ml-9">
+                <div className="ml-9 space-y-0.5">
                   <ProgressBar done={stageDetail.done} total={stageDetail.total} />
+                  <StageTiming detail={stageDetail} />
                 </div>
               )}
               {showFailures && (

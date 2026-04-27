@@ -340,9 +340,17 @@ def _run_stages(
     def _mark(stage: str, status: str) -> None:
         progress = dict(run.stage_progress or {})
         progress[stage] = status
-        updates = {"stage_progress": progress}
+        updates: dict = {"stage_progress": progress}
         if status == "running":
             updates["current_stage"] = stage
+            # Stamp when this stage starts so the UI can compute per-stage
+            # ETAs from done/total. New dict object so SQLAlchemy detects
+            # the JSON column change.
+            detail = dict(run.stage_detail or {})
+            stage_info = dict(detail.get(stage, {}))
+            stage_info["started_at"] = datetime.now(timezone.utc).isoformat()
+            detail[stage] = stage_info
+            updates["stage_detail"] = detail
         _update_run(db, run, **updates)
 
     def _progress(stage: str) -> StageProgress:

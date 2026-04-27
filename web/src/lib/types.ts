@@ -42,6 +42,7 @@ export interface StageDetail {
   total: number;
   message?: string;
   failures?: StageFailure[];
+  started_at?: string;
 }
 
 export interface LeaderboardEntry {
