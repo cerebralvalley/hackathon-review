@@ -119,6 +119,19 @@ KNOWN_UNDOWNLOADABLE_HOSTS: dict[str, str] = {
         "Canva presentation/video links can't be downloaded directly. "
         "Ask the team to export an MP4 and re-upload to YouTube/Loom/Drive."
     ),
+    # Microsoft's new personal OneDrive Photos share format (?e=<token>) is
+    # entirely JS-rendered and the share API rejects anonymous downloads
+    # (requires Microsoft account auth). yt-dlp has no extractor for it.
+    "1drv.ms": (
+        "OneDrive personal share links can't be downloaded without signing "
+        "in to a Microsoft account. Ask the team to re-upload to YouTube, "
+        "Loom, Vimeo, or Google Drive."
+    ),
+    "onedrive.live.com": (
+        "OneDrive personal share links can't be downloaded without signing "
+        "in to a Microsoft account. Ask the team to re-upload to YouTube, "
+        "Loom, Vimeo, or Google Drive."
+    ),
 }
 
 _DIRECT_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi")
