@@ -105,6 +105,23 @@ def _extract_github_url_from_text(text: str) -> str | None:
     return None
 
 
+# Hosts known not to expose a directly-downloadable video file. These are
+# share pages that JS-render the player and don't ship a yt-dlp extractor.
+# Catching them up front saves the 3-retry × 30s timeout cycle and gives
+# the Outreach view a clearer message for the organizer.
+KNOWN_UNDOWNLOADABLE_HOSTS: dict[str, str] = {
+    "flexclip.com": (
+        "Flexclip share pages don't expose a downloadable video — the page "
+        "JS-renders the player. Ask the team to re-upload to YouTube, Loom, "
+        "Vimeo, or Google Drive."
+    ),
+    "canva.com": (
+        "Canva presentation/video links can't be downloaded directly. "
+        "Ask the team to export an MP4 and re-upload to YouTube/Loom/Drive."
+    ),
+}
+
+
 def classify_video_url(raw_url: str) -> VideoInfo:
     url = raw_url.strip()
     info = VideoInfo(original=url)
@@ -114,6 +131,13 @@ def classify_video_url(raw_url: str) -> VideoInfo:
         return info
 
     lower = url.lower()
+
+    for host, reason in KNOWN_UNDOWNLOADABLE_HOSTS.items():
+        if host in lower:
+            info.platform = VideoPlatform.CUSTOM
+            info.is_valid = False
+            info.issues.append(reason)
+            return info
 
     platform_checks: list[tuple[list[str], VideoPlatform]] = [
         (["youtu.be", "youtube.com"], VideoPlatform.YOUTUBE),

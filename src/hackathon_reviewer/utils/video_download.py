@@ -10,6 +10,15 @@ DOWNLOAD_TIMEOUT = 300
 
 def download_ytdlp(url: str, output_path: Path) -> tuple[bool, str | None]:
     """Download a video using yt-dlp. Returns (success, error)."""
+    # Fail fast for share pages we already know yt-dlp can't extract from,
+    # so we don't burn three retries × 30s socket timeouts each.
+    from hackathon_reviewer.stages.parse import KNOWN_UNDOWNLOADABLE_HOSTS
+
+    lower = url.lower()
+    for host, reason in KNOWN_UNDOWNLOADABLE_HOSTS.items():
+        if host in lower:
+            return False, reason
+
     try:
         cmd = [
             "yt-dlp",
