@@ -61,6 +61,9 @@ export default function HackathonDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
+  // Bumped on every successful CSV upload so the preview re-fetches even
+  // when the new file's name matches the old one.
+  const [csvVersion, setCsvVersion] = useState(0);
 
   const load = useCallback(async () => {
     const [h, r] = await Promise.all([
@@ -82,6 +85,7 @@ export default function HackathonDetailPage() {
     try {
       const updated = await hackathonsApi.uploadCsv(id, file);
       setHackathon(updated);
+      setCsvVersion((v) => v + 1);
     } catch (err) {
       alert(String(err));
     } finally {
@@ -322,7 +326,11 @@ export default function HackathonDetailPage() {
                   />
                 </label>
               </div>
-              <CsvPreview hackathonId={id} csvFilename={hackathon.csv_filename} />
+              <CsvPreview
+                hackathonId={id}
+                csvFilename={hackathon.csv_filename}
+                version={csvVersion}
+              />
             </>
           ) : (
             <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -870,9 +878,11 @@ const CSV_PAGE_SIZE = 10;
 function CsvPreview({
   hackathonId,
   csvFilename,
+  version,
 }: {
   hackathonId: string;
   csvFilename: string;
+  version: number;
 }) {
   const [data, setData] = useState<{
     headers: string[];
@@ -887,7 +897,7 @@ function CsvPreview({
 
   useEffect(() => {
     setPage(0);
-  }, [hackathonId, csvFilename]);
+  }, [hackathonId, csvFilename, version]);
 
   useEffect(() => {
     setLoading(true);
@@ -897,7 +907,7 @@ function CsvPreview({
       .then(setData)
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
-  }, [hackathonId, csvFilename, page]);
+  }, [hackathonId, csvFilename, version, page]);
 
   if (error) {
     return <p className="text-sm text-destructive">Preview failed: {error}</p>;
