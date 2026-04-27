@@ -282,39 +282,111 @@ def _patch_latest_run_submissions(
     new_github,
     new_video,
 ) -> None:
+    """Patch the team's URL across every run for this hackathon.
+
+    Outreach prefers the most recent *completed* run, while the active
+    pipeline writes to the most recent *interrupted/running* run. We don't
+    know in advance which run the user is currently viewing, so update
+    them all — and clear the stale per-run download/clone artifacts in
+    each so Outreach reflects the fresh state immediately.
+    """
     import json
-    latest = (
+    runs = (
         db.query(PipelineRun)
         .filter(PipelineRun.hackathon_id == hackathon_id)
         .order_by(PipelineRun.created_at.desc())
-        .first()
+        .all()
     )
-    if not latest:
+    if not runs:
         return
-    subs_path = storage.run_data_dir(hackathon_id, latest.id) / "submissions.json"
-    if not subs_path.exists():
+
+    for run in runs:
+        run_data = storage.run_data_dir(hackathon_id, run.id)
+        subs_path = run_data / "submissions.json"
+        if not subs_path.exists():
+            continue
+        try:
+            with open(subs_path, "r", encoding="utf-8") as f:
+                subs = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(subs, list):
+            continue
+        sanitized: str | None = None
+        changed = False
+        for entry in subs:
+            if entry.get("team_number") != team_number:
+                continue
+            sanitized = entry.get("sanitized_name") or None
+            if new_github is not None:
+                entry["github"] = new_github.model_dump(mode="json")
+                changed = True
+            if new_video is not None:
+                entry["video"] = new_video.model_dump(mode="json")
+                changed = True
+            break
+        if changed:
+            with open(subs_path, "w", encoding="utf-8") as f:
+                json.dump(subs, f, indent=2, ensure_ascii=False)
+
+        if new_video is not None:
+            _purge_team_video(run_data, hackathon_id, team_number, sanitized)
+        if new_github is not None:
+            _purge_team_clone(run_data, hackathon_id, team_number, sanitized)
+
+
+def _drop_team_from_list(path, team_number: int) -> None:
+    import json
+    if not path.exists():
         return
     try:
-        with open(subs_path, "r", encoding="utf-8") as f:
-            subs = json.load(f)
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return
-    if not isinstance(subs, list):
+    if not isinstance(data, list):
         return
-    changed = False
-    for entry in subs:
-        if entry.get("team_number") != team_number:
-            continue
-        if new_github is not None:
-            entry["github"] = new_github.model_dump(mode="json")
-            changed = True
-        if new_video is not None:
-            entry["video"] = new_video.model_dump(mode="json")
-            changed = True
-        break
-    if changed:
-        with open(subs_path, "w", encoding="utf-8") as f:
-            json.dump(subs, f, indent=2, ensure_ascii=False)
+    filtered = [e for e in data if e.get("team_number") != team_number]
+    if len(filtered) != len(data):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(filtered, f, indent=2, ensure_ascii=False)
+
+
+def _drop_team_from_dict(path, team_number: int) -> None:
+    import json
+    if not path.exists():
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+    key = str(team_number)
+    if key in data:
+        del data[key]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def _purge_team_video(run_data, hackathon_id: str, team_number: int, sanitized: str | None) -> None:
+    if sanitized:
+        videos_dir = storage.hackathon_videos_dir(hackathon_id)
+        for name in (f"{sanitized}.mp4", f"{sanitized}_prepared.mp4"):
+            (videos_dir / name).unlink(missing_ok=True)
+    _drop_team_from_dict(run_data / "video_downloads.json", team_number)
+    _drop_team_from_list(run_data / "video_analysis.json", team_number)
+
+
+def _purge_team_clone(run_data, hackathon_id: str, team_number: int, sanitized: str | None) -> None:
+    if sanitized:
+        repo_dir = storage.hackathon_repos_dir(hackathon_id) / sanitized
+        if repo_dir.exists():
+            shutil.rmtree(repo_dir, ignore_errors=True)
+    _drop_team_from_list(run_data / "repo_metadata.json", team_number)
+    _drop_team_from_list(run_data / "static_analysis.json", team_number)
+    _drop_team_from_list(run_data / "code_reviews.json", team_number)
 
 
 @router.get("/{hackathon_id}/csv/preview")
