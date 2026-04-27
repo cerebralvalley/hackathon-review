@@ -22,9 +22,26 @@ from hackathon_reviewer.models import (
 )
 from hackathon_reviewer.utils.git import is_valid_repo, run_git
 
-CLONE_TIMEOUT = 120
-MAX_CLONE_RETRIES = 2
-RETRY_DELAY = 3
+CLONE_TIMEOUT = 240          # per-attempt seconds; large repos can be slow
+MAX_CLONE_RETRIES = 4        # 5 total attempts: handles transient network blips
+RETRY_DELAY_BASE = 2         # exponential: 2, 4, 8, 16, 32 (capped at MAX)
+RETRY_DELAY_MAX = 30
+
+# Substrings in `git clone` stderr that signal a permanent failure — no point
+# retrying. Saves up to ~5 × delay seconds per genuinely-dead repo.
+_PERMANENT_CLONE_ERRORS = (
+    "repository not found",
+    "could not read username",
+    "authentication failed",
+    "access denied",
+    "permission denied",
+    "you are not allowed to push",
+)
+
+
+def _is_permanent_clone_error(stderr: str) -> bool:
+    s = (stderr or "").lower()
+    return any(p in s for p in _PERMANENT_CLONE_ERRORS)
 
 SKIP_DIRS = {
     "node_modules", ".git", "vendor", "venv", ".venv", "__pycache__",
@@ -65,12 +82,13 @@ def _clone_repo(clone_url: str, dest_dir: Path) -> tuple[bool, str | None]:
         return True, None
 
     dest_dir.parent.mkdir(parents=True, exist_ok=True)
-    last_error = None
+    last_error: str | None = None
     for attempt in range(1 + MAX_CLONE_RETRIES):
         if attempt > 0:
             if dest_dir.exists():
                 shutil.rmtree(dest_dir, ignore_errors=True)
-            time.sleep(RETRY_DELAY * attempt)
+            delay = min(RETRY_DELAY_BASE * (2 ** (attempt - 1)), RETRY_DELAY_MAX)
+            time.sleep(delay)
 
         rc, _, stderr = run_git(
             ["clone", clone_url, str(dest_dir)],
@@ -79,7 +97,12 @@ def _clone_repo(clone_url: str, dest_dir: Path) -> tuple[bool, str | None]:
         )
         if rc == 0:
             return True, None
-        last_error = stderr.strip()[:200] if stderr else "unknown_error"
+        last_error = stderr.strip()[:300] if stderr else "unknown_error"
+
+        # No point retrying if the repo doesn't exist or auth failed —
+        # the next attempt will hit the same wall.
+        if _is_permanent_clone_error(last_error):
+            break
 
     return False, last_error
 
