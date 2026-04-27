@@ -81,6 +81,20 @@ STAGE_ORDER = [
     "reporting",
 ]
 
+# Stages by phase. Acquisition is "get the data right" (network only,
+# cheap, fast iteration loop with the Outreach view). Analysis is "spend
+# LLM tokens" — only run once data quality is good.
+ACQUISITION_STAGES = ["parse", "clone", "video_download"]
+ANALYSIS_STAGES = ["static_analysis", "code_review", "video_analysis", "scoring", "reporting"]
+
+
+def _stages_for_phase(phase: str) -> list[str]:
+    if phase == "acquisition":
+        return ACQUISITION_STAGES
+    if phase == "analysis":
+        return ANALYSIS_STAGES
+    return STAGE_ORDER  # "full" (legacy / explicit one-shot)
+
 
 def _build_review_config(
     hackathon: db_models.Hackathon,
@@ -134,10 +148,17 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
         _update_run(db, run, status="failed", error="No CSV uploaded")
         return
 
+    phase = run.phase or "full"
+    target_stages = _stages_for_phase(phase)
+
     existing_progress = run.stage_progress or {}
     stage_progress = {}
     for s in STAGE_ORDER:
-        if existing_progress.get(s) == "completed":
+        if s not in target_stages:
+            # Stages outside this run's phase aren't applicable. Leave them
+            # untouched if previously completed, else mark as not-applicable.
+            stage_progress[s] = existing_progress.get(s, "skipped")
+        elif existing_progress.get(s) == "completed":
             stage_progress[s] = "completed"
         else:
             stage_progress[s] = "pending"
@@ -156,8 +177,18 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
         _update_run(db, run, status="failed", error=f"Config error: {exc}")
         return
 
+    # Analysis runs need acquisition outputs (submissions.json,
+    # repo_metadata.json, video_downloads.json) to read from. Seed this
+    # run's data dir from the latest completed acquisition run.
+    if phase == "analysis":
+        try:
+            _seed_analysis_data(db, hackathon.id, run, cfg)
+        except FileNotFoundError as exc:
+            _update_run(db, run, status="failed", error=str(exc))
+            return
+
     try:
-        _run_stages(db, run, cfg, resume)
+        _run_stages(db, run, cfg, resume, target_stages=target_stages)
     except PipelineCancelled:
         logger.info("Pipeline cancelled by user for run %s", run_id)
         progress = dict(run.stage_progress or {})
@@ -184,11 +215,60 @@ def execute_pipeline(db: Session, run_id: str, resume: bool = True) -> None:
         )
 
 
+def _seed_analysis_data(
+    db: Session,
+    hackathon_id: str,
+    run: db_models.PipelineRun,
+    cfg: "ReviewConfig",
+) -> None:
+    """Copy submissions/repo_metadata/video_downloads from the latest completed
+    acquisition run into this analysis run's data dir, so the analysis stages
+    have inputs to read.
+
+    Already-seeded (e.g. resume) runs are left alone.
+    """
+    import shutil
+
+    if (cfg.data_dir / "submissions.json").exists():
+        return  # already seeded (likely a resume)
+
+    candidates = (
+        db.query(db_models.PipelineRun)
+        .filter(
+            db_models.PipelineRun.hackathon_id == hackathon_id,
+            db_models.PipelineRun.id != run.id,
+            db_models.PipelineRun.phase.in_(["acquisition", "full"]),
+        )
+        .order_by(db_models.PipelineRun.created_at.desc())
+        .all()
+    )
+
+    src_run = None
+    for r in candidates:
+        progress = r.stage_progress or {}
+        if all(progress.get(s) == "completed" for s in ACQUISITION_STAGES):
+            src_run = r
+            break
+
+    if not src_run:
+        raise FileNotFoundError(
+            "No completed data acquisition found. Click 'Refresh Data' first."
+        )
+
+    src_data = storage.run_data_dir(hackathon_id, src_run.id)
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    for fname in ("submissions.json", "repo_metadata.json", "video_downloads.json"):
+        src_file = src_data / fname
+        if src_file.exists():
+            shutil.copy2(src_file, cfg.data_dir / fname)
+
+
 def _run_stages(
     db: Session,
     run: db_models.PipelineRun,
     cfg: "ReviewConfig",
     resume: bool,
+    target_stages: list[str] | None = None,
 ) -> None:
     from hackathon_reviewer.stages.parse import run_parse, load_submissions
     from hackathon_reviewer.stages.clone import run_clone, load_repo_metadata
@@ -199,6 +279,7 @@ def _run_stages(
     from hackathon_reviewer.stages.scoring import run_scoring, load_scores
     from hackathon_reviewer.stages.reporting import run_reporting
 
+    targets = set(target_stages or STAGE_ORDER)
     prior = run.stage_progress or {}
 
     def _done(stage: str) -> bool:
@@ -218,81 +299,114 @@ def _run_stages(
     def _log_path(stage: str) -> Path:
         return storage.run_logs_dir(run.hackathon_id, run.id) / f"{stage}.log"
 
-    # Stage 1: Parse
-    if _done("parse"):
-        logger.info("Skipping parse (already completed)")
+    # ---- Acquisition stages ----
+    submissions = None
+    repo_metadata = None
+    video_downloads = None
+
+    if "parse" in targets:
+        if _done("parse"):
+            submissions = load_submissions(cfg)
+        else:
+            _mark("parse", "running")
+            with capture_stage(_log_path("parse"), "parse"):
+                submissions = run_parse(cfg)
+            _mark("parse", "completed")
+
+    if "clone" in targets:
+        if submissions is None:
+            submissions = load_submissions(cfg)
+        if _done("clone"):
+            repo_metadata = load_repo_metadata(cfg)
+        else:
+            _mark("clone", "running")
+            with capture_stage(_log_path("clone"), "clone"):
+                repo_metadata = run_clone(cfg, submissions, resume=resume, progress=_progress("clone"))
+            _mark("clone", "completed")
+
+    if "video_download" in targets:
+        if submissions is None:
+            submissions = load_submissions(cfg)
+        if _done("video_download"):
+            video_downloads = load_video_downloads(cfg)
+        else:
+            _mark("video_download", "running")
+            with capture_stage(_log_path("video_download"), "video_download"):
+                video_downloads = run_video_download(cfg, submissions, resume=resume, progress=_progress("video_download"))
+            _mark("video_download", "completed")
+
+    # If no analysis stages are on the menu, we're done.
+    if not (targets & set(ANALYSIS_STAGES)):
+        _update_run(
+            db, run,
+            status="completed",
+            current_stage=None,
+            completed_at=datetime.now(timezone.utc),
+        )
+        return
+
+    # Analysis needs all three acquisition outputs available locally.
+    if submissions is None:
         submissions = load_submissions(cfg)
-    else:
-        _mark("parse", "running")
-        with capture_stage(_log_path("parse"), "parse"):
-            submissions = run_parse(cfg)
-        _mark("parse", "completed")
-
-    # Stage 2: Clone
-    if _done("clone"):
-        logger.info("Skipping clone (already completed)")
+    if repo_metadata is None:
         repo_metadata = load_repo_metadata(cfg)
-    else:
-        _mark("clone", "running")
-        with capture_stage(_log_path("clone"), "clone"):
-            repo_metadata = run_clone(cfg, submissions, resume=resume, progress=_progress("clone"))
-        _mark("clone", "completed")
-
-    # Stage 3: Video download
-    if _done("video_download"):
-        logger.info("Skipping video_download (already completed)")
+    if video_downloads is None:
         video_downloads = load_video_downloads(cfg)
-    else:
-        _mark("video_download", "running")
-        with capture_stage(_log_path("video_download"), "video_download"):
-            video_downloads = run_video_download(cfg, submissions, resume=resume, progress=_progress("video_download"))
-        _mark("video_download", "completed")
 
-    # Stage 4: Static analysis
-    if _done("static_analysis"):
-        logger.info("Skipping static_analysis (already completed)")
+    # ---- Analysis stages ----
+    static_results = None
+    if "static_analysis" in targets:
+        if _done("static_analysis"):
+            static_results = load_static_analysis(cfg)
+        else:
+            _mark("static_analysis", "running")
+            with capture_stage(_log_path("static_analysis"), "static_analysis"):
+                static_results = run_static_analysis(cfg, submissions, repo_metadata, progress=_progress("static_analysis"))
+            _mark("static_analysis", "completed")
+    if static_results is None:
         static_results = load_static_analysis(cfg)
-    else:
-        _mark("static_analysis", "running")
-        with capture_stage(_log_path("static_analysis"), "static_analysis"):
-            static_results = run_static_analysis(cfg, submissions, repo_metadata, progress=_progress("static_analysis"))
-        _mark("static_analysis", "completed")
 
-    # Stage 5: Code review
-    if _done("code_review"):
-        logger.info("Skipping code_review (already completed)")
+    code_reviews = None
+    if "code_review" in targets:
+        if _done("code_review"):
+            code_reviews = load_code_reviews(cfg)
+        else:
+            _mark("code_review", "running")
+            with capture_stage(_log_path("code_review"), "code_review"):
+                code_reviews = run_code_review(cfg, submissions, repo_metadata, static_results, resume=resume, progress=_progress("code_review"))
+            _mark("code_review", "completed")
+    if code_reviews is None:
         code_reviews = load_code_reviews(cfg)
-    else:
-        _mark("code_review", "running")
-        with capture_stage(_log_path("code_review"), "code_review"):
-            code_reviews = run_code_review(cfg, submissions, repo_metadata, static_results, resume=resume, progress=_progress("code_review"))
-        _mark("code_review", "completed")
 
-    # Stage 6: Video analysis
-    if _done("video_analysis"):
-        logger.info("Skipping video_analysis (already completed)")
+    video_results = None
+    if "video_analysis" in targets:
+        if _done("video_analysis"):
+            video_results = load_video_analysis(cfg)
+        else:
+            _mark("video_analysis", "running")
+            with capture_stage(_log_path("video_analysis"), "video_analysis"):
+                video_results = run_video_analysis(cfg, submissions, video_downloads, resume=resume, progress=_progress("video_analysis"))
+            _mark("video_analysis", "completed")
+    if video_results is None:
         video_results = load_video_analysis(cfg)
-    else:
-        _mark("video_analysis", "running")
-        with capture_stage(_log_path("video_analysis"), "video_analysis"):
-            video_results = run_video_analysis(cfg, submissions, video_downloads, resume=resume, progress=_progress("video_analysis"))
-        _mark("video_analysis", "completed")
 
-    # Stage 7: Scoring
-    if _done("scoring"):
-        logger.info("Skipping scoring (already completed)")
+    scores = None
+    if "scoring" in targets:
+        if _done("scoring"):
+            scores = load_scores(cfg)
+        else:
+            _mark("scoring", "running")
+            with capture_stage(_log_path("scoring"), "scoring"):
+                scores = run_scoring(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, progress=_progress("scoring"))
+            _mark("scoring", "completed")
+    if scores is None:
         scores = load_scores(cfg)
-    else:
-        _mark("scoring", "running")
-        with capture_stage(_log_path("scoring"), "scoring"):
-            scores = run_scoring(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, progress=_progress("scoring"))
-        _mark("scoring", "completed")
 
-    # Stage 8: Reporting (always re-run to pick up any changes)
-    _mark("reporting", "running")
-    with capture_stage(_log_path("reporting"), "reporting"):
-        run_reporting(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, scores, progress=_progress("reporting"))
-    _mark("reporting", "completed")
+    if "reporting" in targets:
+        _mark("reporting", "running")
+        with capture_stage(_log_path("reporting"), "reporting"):
+            run_reporting(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, scores, progress=_progress("reporting"))
+        _mark("reporting", "completed")
 
     _update_run(
         db, run,

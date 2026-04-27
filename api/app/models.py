@@ -73,5 +73,9 @@ class PipelineRun(Base):
     # worker checks it on every per-team progress update and raises to abort.
     # Reset to False whenever a run starts or resumes.
     cancel_requested = Column(Boolean, nullable=False, default=False)
+    # Which phase this run executed. "acquisition" = parse + clone +
+    # video_download (cheap, network only). "analysis" = static_analysis
+    # through reporting (LLM cost). "full" = all 8 stages, legacy default.
+    phase = Column(String, nullable=False, default="full")
 
     hackathon = relationship("Hackathon", back_populates="runs")

@@ -49,6 +49,10 @@ class HackathonListResponse(BaseModel):
 
 class RunCreate(BaseModel):
     resume: bool = True
+    # "acquisition" = parse + clone + video_download (data loop, cheap)
+    # "analysis" = static_analysis through reporting (LLM cost)
+    # "full" = all 8 stages (legacy default)
+    phase: str = "full"
 
 
 class RunResponse(BaseModel):
@@ -63,6 +67,7 @@ class RunResponse(BaseModel):
     completed_at: datetime | None
     created_at: datetime
     cancel_requested: bool = False
+    phase: str = "full"
 
     model_config = {"from_attributes": True}
 

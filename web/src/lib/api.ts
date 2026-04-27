@@ -104,10 +104,16 @@ export const runs = {
 
   get: (runId: string) => request<PipelineRun>(`/api/runs/${runId}`),
 
-  create: (hackathonId: string, resume = true) =>
+  create: (
+    hackathonId: string,
+    opts: { resume?: boolean; phase?: "acquisition" | "analysis" | "full" } = {}
+  ) =>
     request<PipelineRun>(`/api/runs?hackathon_id=${hackathonId}`, {
       method: "POST",
-      body: JSON.stringify({ resume }),
+      body: JSON.stringify({
+        resume: opts.resume ?? true,
+        phase: opts.phase ?? "full",
+      }),
     }),
 
   resume: (runId: string) =>

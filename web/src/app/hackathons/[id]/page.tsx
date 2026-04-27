@@ -93,10 +93,10 @@ export default function HackathonDetailPage() {
     }
   }
 
-  async function handleTrigger() {
+  async function handleRun(phase: "acquisition" | "analysis" | "full") {
     setTriggering(true);
     try {
-      const run = await runsApi.create(id);
+      const run = await runsApi.create(id, { phase });
       setPipelineRuns((prev) => [run, ...prev]);
     } catch (err) {
       alert(String(err));
@@ -151,6 +151,14 @@ export default function HackathonDetailPage() {
   const latestCompletedRun = pipelineRuns.find(
     (r) => r.status === "completed"
   );
+  // Most recent run whose acquisition stages are all completed — used as the
+  // source of truth for Outreach and as the prerequisite for running analysis.
+  const latestAcquisitionRun = pipelineRuns.find((r) =>
+    ["parse", "clone", "video_download"].every(
+      (s) => r.stage_progress?.[s] === "completed"
+    )
+  );
+  const hasAcquisitionData = !!latestAcquisitionRun;
 
   return (
     <div className="space-y-8">
@@ -351,27 +359,81 @@ export default function HackathonDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Pipeline — trigger only */}
+      {/* Data Acquisition — clones repos, downloads videos, surfaces failures */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Pipeline</CardTitle>
-          <CardDescription>
-            Run the full review pipeline on the uploaded CSV
-          </CardDescription>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Data Acquisition</CardTitle>
+              <CardDescription>
+                Clone repos, download videos, and identify teams that need
+                outreach. Cheap to re-run — only changed teams re-fetch.
+              </CardDescription>
+            </div>
+            <Button
+              onClick={() => handleRun("acquisition")}
+              disabled={triggering || !hackathon.csv_filename || hasActiveRun}
+              size="sm"
+            >
+              {triggering
+                ? "Starting..."
+                : hasActiveRun
+                  ? "Pipeline running..."
+                  : hasAcquisitionData
+                    ? "Refresh Data"
+                    : "Acquire Data"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <Button
-            onClick={handleTrigger}
-            disabled={
-              triggering || !hackathon.csv_filename || hasActiveRun
-            }
-          >
-            {triggering
-              ? "Starting..."
-              : hasActiveRun
-                ? "Pipeline running..."
-                : "Run Pipeline"}
-          </Button>
+          <DataAcquisitionInline
+            hackathonId={id}
+            run={latestAcquisitionRun ?? null}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Analysis — LLM cost. Only enabled once acquisition data exists. */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Analysis</CardTitle>
+              <CardDescription>
+                Run static analysis, code review, video analysis, scoring, and
+                reporting. Uses the LLM provider — only run when the data is in
+                good shape.
+              </CardDescription>
+            </div>
+            <Button
+              onClick={() => handleRun("analysis")}
+              disabled={
+                triggering ||
+                !hackathon.csv_filename ||
+                hasActiveRun ||
+                !hasAcquisitionData
+              }
+              size="sm"
+              title={
+                !hasAcquisitionData
+                  ? "Run Data Acquisition first"
+                  : undefined
+              }
+            >
+              {triggering
+                ? "Starting..."
+                : hasActiveRun
+                  ? "Running..."
+                  : "Run Analysis"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground">
+            {hasAcquisitionData
+              ? "Data is ready. Running analysis will use cached results for any team whose repo or video hasn't changed since the last run."
+              : "Acquire data first. The Analysis step reads the most recently completed Data Acquisition run."}
+          </p>
         </CardContent>
       </Card>
 
@@ -421,26 +483,22 @@ function ResultsSection({
 }) {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
   const [flags, setFlags] = useState<Flag[] | null>(null);
-  const [outreach, setOutreach] = useState<OutreachTeam[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!latestCompletedRun) {
       setLeaderboard(null);
       setFlags(null);
-      setOutreach(null);
       return;
     }
     setLoading(true);
     Promise.all([
       resultsApi.leaderboard(latestCompletedRun.id),
       resultsApi.flags(latestCompletedRun.id),
-      resultsApi.outreach(latestCompletedRun.id),
     ])
-      .then(([lb, fl, ot]) => {
+      .then(([lb, fl]) => {
         setLeaderboard(lb);
         setFlags(fl);
-        setOutreach(ot);
       })
       .finally(() => setLoading(false));
   }, [latestCompletedRun?.id]);
@@ -514,14 +572,6 @@ function ResultsSection({
                 </span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="outreach">
-              Outreach
-              {outreach && (
-                <span className="ml-1.5 text-xs text-muted-foreground">
-                  {outreach.length}
-                </span>
-              )}
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="leaderboard" className="mt-4">
@@ -585,27 +635,6 @@ function ResultsSection({
                   onChange={(next) => setFlags(next)}
                 />
               </>
-            )}
-          </TabsContent>
-
-          <TabsContent value="outreach" className="mt-4">
-            <Link
-              href={`/hackathons/${hackathonId}/outreach`}
-              className={cn(
-                buttonVariants({ variant: "outline", size: "sm" }),
-                "mb-3"
-              )}
-            >
-              View full outreach →
-            </Link>
-            {loading ? (
-              <p className="text-sm text-muted-foreground py-6">Loading...</p>
-            ) : !outreach || outreach.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6">
-                Every team's repo and video processed cleanly — no outreach needed.
-              </p>
-            ) : (
-              <OutreachInlineList teams={outreach} />
             )}
           </TabsContent>
         </Tabs>
@@ -692,6 +721,84 @@ function LeaderboardTable({
           </TableBody>
         </Table>
       </div>
+    </div>
+  );
+}
+
+function DataAcquisitionInline({
+  hackathonId,
+  run,
+}: {
+  hackathonId: string;
+  run: PipelineRun | null;
+}) {
+  const [outreach, setOutreach] = useState<OutreachTeam[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!run) {
+      setOutreach(null);
+      return;
+    }
+    setLoading(true);
+    resultsApi
+      .outreach(run.id)
+      .then(setOutreach)
+      .catch(() => setOutreach([]))
+      .finally(() => setLoading(false));
+  }, [run?.id]);
+
+  if (!run) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No data acquired yet. Click <strong>Acquire Data</strong> to clone repos
+        and download videos.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-muted-foreground">
+        Last acquisition: <span className="font-mono">{run.id.slice(0, 8)}</span>
+        {" · "}
+        {run.completed_at
+          ? new Date(run.completed_at).toLocaleString()
+          : run.status}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Checking outreach…</p>
+      ) : !outreach || outreach.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Every team's repo and video acquired cleanly — no outreach needed.
+        </p>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-sm">
+              <span className="font-semibold text-destructive">
+                {outreach.length}
+              </span>{" "}
+              team{outreach.length === 1 ? "" : "s"} need outreach (URL fixes)
+            </p>
+            <Link
+              href={`/hackathons/${hackathonId}/outreach`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+              )}
+            >
+              Review &amp; fix URLs →
+            </Link>
+          </div>
+          <OutreachInlineList teams={outreach.slice(0, 5)} />
+          {outreach.length > 5 && (
+            <p className="text-xs text-muted-foreground">
+              + {outreach.length - 5} more — click Review &amp; fix URLs
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

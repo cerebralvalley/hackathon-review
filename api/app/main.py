@@ -35,6 +35,9 @@ def _run_migrations() -> None:
         if "cancel_requested" not in columns:
             conn.execute(sqlalchemy.text("ALTER TABLE pipeline_runs ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT 0"))
             conn.commit()
+        if "phase" not in columns:
+            conn.execute(sqlalchemy.text("ALTER TABLE pipeline_runs ADD COLUMN phase VARCHAR NOT NULL DEFAULT 'full'"))
+            conn.commit()
 
 
 def _recover_interrupted_runs() -> None:

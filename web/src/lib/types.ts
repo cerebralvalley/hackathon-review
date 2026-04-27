@@ -27,6 +27,7 @@ export interface PipelineRun {
   completed_at: string | null;
   created_at: string;
   cancel_requested?: boolean;
+  phase?: "acquisition" | "analysis" | "full";
 }
 
 export interface StageFailure {

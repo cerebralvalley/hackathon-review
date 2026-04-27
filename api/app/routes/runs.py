@@ -65,7 +65,11 @@ def create_run(
     if active:
         raise HTTPException(409, f"A run is already {active.status} (id={active.id})")
 
-    run = PipelineRun(hackathon_id=hackathon_id)
+    phase = body.phase if body else "full"
+    if phase not in ("acquisition", "analysis", "full"):
+        raise HTTPException(400, f"Invalid phase '{phase}'")
+
+    run = PipelineRun(hackathon_id=hackathon_id, phase=phase)
     db.add(run)
     db.commit()
     db.refresh(run)
