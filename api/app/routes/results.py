@@ -26,6 +26,39 @@ def _load_json(path: Path) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
+def _video_download_status(data: Path) -> dict[int, dict]:
+    """Read video_downloads.json (the per-team download result map written by
+    the video_download stage) and prefer it over video_analysis.json's nested
+    download field. This way Flags / Outreach reflect download success/failure
+    as soon as the download stage finishes — without waiting for the LLM
+    analysis stage to also complete.
+    """
+    out: dict[int, dict] = {}
+    # Primary source: video_downloads.json. Stage writes a dict keyed by
+    # stringified team number → VideoDownloadResult dict.
+    primary_path = data / "video_downloads.json"
+    if primary_path.exists():
+        try:
+            with open(primary_path, "r", encoding="utf-8") as f:
+                blob = json.load(f)
+            if isinstance(blob, dict):
+                for k, v in blob.items():
+                    try:
+                        out[int(k)] = v if isinstance(v, dict) else {}
+                    except (TypeError, ValueError):
+                        continue
+        except (OSError, json.JSONDecodeError):
+            pass
+    # Fallback / overlay: video_analysis.json's nested download field if
+    # video_downloads.json hasn't been written or is missing teams.
+    for v in _load_json(data / "video_analysis.json"):
+        tn = v.get("team_number")
+        dl = v.get("download")
+        if isinstance(tn, int) and isinstance(dl, dict) and tn not in out:
+            out[tn] = dl
+    return out
+
+
 def _get_run_or_404(run_id: str, db: Session) -> PipelineRun:
     run = db.get(PipelineRun, run_id)
     if not run:
@@ -159,6 +192,7 @@ def get_flags(run_id: str, db: Session = Depends(get_db)):
     submissions = _load_json(data / "submissions.json")
     repo_meta = {m["team_number"]: m for m in _load_json(data / "repo_metadata.json")}
     video_results = {v["team_number"]: v for v in _load_json(data / "video_analysis.json")}
+    download_status = _video_download_status(data)
 
     hackathon_cfg = (run.hackathon.config or {}).get("hackathon", {}) if run.hackathon else {}
     max_team_size = hackathon_cfg.get("max_team_size")
@@ -201,9 +235,9 @@ def get_flags(run_id: str, db: Session = Depends(get_db)):
                 description=f"Video URL invalid: {issues}",
                 severity="error",
             ))
-        elif video:
-            dl = video.get("download", {})
-            if not dl.get("success"):
+        else:
+            dl = download_status.get(tn) or (video.get("download") if video else None)
+            if dl is not None and not dl.get("success"):
                 flags.append(FlagResponse(
                     team_number=tn, team_name=team, project_name=project,
                     flag_type="video_download_failed",
@@ -324,6 +358,7 @@ def get_outreach(run_id: str, db: Session = Depends(get_db)):
     submissions = _load_json(data / "submissions.json")
     repo_meta = {m["team_number"]: m for m in _load_json(data / "repo_metadata.json")}
     video_results = {v["team_number"]: v for v in _load_json(data / "video_analysis.json")}
+    download_status = _video_download_status(data)
 
     out = []
     for sub in submissions:
@@ -355,9 +390,9 @@ def get_outreach(run_id: str, db: Session = Depends(get_db)):
                 "label": "Video URL invalid",
                 "description": details,
             })
-        elif video:
-            dl = video.get("download", {})
-            if not dl.get("success"):
+        else:
+            dl = download_status.get(tn) or (video.get("download") if video else None)
+            if dl is not None and not dl.get("success"):
                 issues.append({
                     "type": "video_download_failed",
                     "label": "Video download failed",
