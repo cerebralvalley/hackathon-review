@@ -146,9 +146,14 @@ export default function HackathonDetailPage() {
     return <p className="text-muted-foreground">Loading...</p>;
   }
 
-  const hasActiveRun = pipelineRuns.some(
+  const activeRun = pipelineRuns.find(
     (r) => r.status === "pending" || r.status === "running"
   );
+  const hasActiveRun = !!activeRun;
+  const acquisitionRunning =
+    !!activeRun && (activeRun.phase === "acquisition" || activeRun.phase === "full");
+  const analysisRunning =
+    !!activeRun && (activeRun.phase === "analysis" || activeRun.phase === "full");
   const latestCompletedRun = pipelineRuns.find(
     (r) => r.status === "completed"
   );
@@ -375,14 +380,21 @@ export default function HackathonDetailPage() {
               onClick={() => handleRun("acquisition")}
               disabled={triggering || !hackathon.csv_filename || hasActiveRun}
               size="sm"
+              title={
+                analysisRunning && !acquisitionRunning
+                  ? "Analysis is running — wait or stop it from the Run history page"
+                  : undefined
+              }
             >
               {triggering
                 ? "Starting..."
-                : hasActiveRun
-                  ? "Pipeline running..."
-                  : hasAcquisitionData
-                    ? "Refresh Data"
-                    : "Acquire Data"}
+                : acquisitionRunning
+                  ? "Acquiring..."
+                  : analysisRunning
+                    ? "Analysis running…"
+                    : hasAcquisitionData
+                      ? "Refresh Data"
+                      : "Acquire Data"}
             </Button>
           </div>
         </CardHeader>
@@ -418,14 +430,18 @@ export default function HackathonDetailPage() {
               title={
                 !hasAcquisitionData
                   ? "Run Data Acquisition first"
-                  : undefined
+                  : acquisitionRunning && !analysisRunning
+                    ? "Acquisition is running — wait for it to finish"
+                    : undefined
               }
             >
               {triggering
                 ? "Starting..."
-                : hasActiveRun
-                  ? "Running..."
-                  : "Run Analysis"}
+                : analysisRunning
+                  ? "Analyzing..."
+                  : acquisitionRunning
+                    ? "Acquisition running…"
+                    : "Run Analysis"}
             </Button>
           </div>
         </CardHeader>
