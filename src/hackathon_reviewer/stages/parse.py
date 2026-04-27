@@ -132,6 +132,18 @@ KNOWN_UNDOWNLOADABLE_HOSTS: dict[str, str] = {
         "in to a Microsoft account. Ask the team to re-upload to YouTube, "
         "Loom, Vimeo, or Google Drive."
     ),
+    # Google Cloud Run app URLs aren't videos — teams sometimes paste
+    # their live demo URL into the video column by mistake.
+    ".run.app": (
+        "This looks like a Google Cloud Run hosted app, not a video. The "
+        "team probably submitted their live demo URL by mistake. Ask for "
+        "a video recording (YouTube, Loom, Vimeo, or Google Drive)."
+    ),
+    # NotebookLM URLs are interactive notebook documents, not videos.
+    "notebooklm.google.com": (
+        "NotebookLM links are notebook documents, not videos. Ask the "
+        "team for a video recording (YouTube, Loom, Vimeo, or Drive)."
+    ),
 }
 
 _DIRECT_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi")
