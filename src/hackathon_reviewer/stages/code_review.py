@@ -73,7 +73,8 @@ def _review_one(
         result.error = "repo_not_cloned"
         return result
 
-    repo_dir = cfg.repos_dir / sub.sanitized_name
+    from hackathon_reviewer.utils.cache_key import repo_cache_key
+    repo_dir = cfg.repos_dir / repo_cache_key(sub)
     source_files = read_key_files(repo_dir, max_chars=cfg.code_review.max_source_chars)
     transcript = _get_transcript(cfg, sub.sanitized_name)
 
@@ -209,7 +210,8 @@ def run_code_review(
 
         # Try the hackathon-level cache before scheduling the LLM call.
         if cache.enabled and meta.clone_success:
-            repo_dir = cfg.repos_dir / sub.sanitized_name
+            from hackathon_reviewer.utils.cache_key import repo_cache_key
+            repo_dir = cfg.repos_dir / repo_cache_key(sub)
             input_sig = _code_review_input_sig(sub, repo_dir)
             if input_sig:
                 cached = cache.load(sub.team_number, config_sig, input_sig)
@@ -253,7 +255,8 @@ def run_code_review(
                     sub = next((s for s in work if s.team_number == team_num), None)
                     meta = meta_by_team.get(team_num)
                     if sub and meta and meta.clone_success:
-                        repo_dir = cfg.repos_dir / sub.sanitized_name
+                        from hackathon_reviewer.utils.cache_key import repo_cache_key
+                        repo_dir = cfg.repos_dir / repo_cache_key(sub)
                         input_sig = _code_review_input_sig(sub, repo_dir)
                         if input_sig:
                             cache.save(team_num, config_sig, input_sig, result.model_dump(mode="json"))

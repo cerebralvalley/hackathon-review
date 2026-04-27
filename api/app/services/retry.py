@@ -66,13 +66,16 @@ def _retry_clone(cfg, team_numbers: list[int]) -> None:
     out_path = cfg.data_dir / "repo_metadata.json"
     existing = {m.team_number: m for m in _load_metadata_file(out_path)} if out_path.exists() else {}
 
+    from hackathon_reviewer.utils.cache_key import repo_cache_key
     for tn in team_numbers:
         sub = sub_map.get(tn)
         if not sub:
             continue
-        repo_dir = cfg.repos_dir / sub.sanitized_name
-        if repo_dir.exists():
-            shutil.rmtree(repo_dir, ignore_errors=True)
+        # Wipe both the new (URL-hash) path and the legacy (sanitized_name)
+        # path so a fresh clone is forced.
+        for d in (cfg.repos_dir / repo_cache_key(sub), cfg.repos_dir / sub.sanitized_name):
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
         meta = _process_one(sub, cfg)
         existing[tn] = meta
         logger.info("Retry clone team %d: success=%s", tn, meta.clone_success)
@@ -92,12 +95,20 @@ def _retry_video_download(cfg, team_numbers: list[int]) -> None:
     out_path = cfg.data_dir / "video_downloads.json"
     existing = _load_downloads_file(out_path) if out_path.exists() else {}
 
+    from hackathon_reviewer.utils.cache_key import video_cache_key
     for tn in team_numbers:
         sub = sub_map.get(tn)
         if not sub:
             continue
-        video_path = cfg.videos_dir / f"{sub.sanitized_name}.mp4"
-        video_path.unlink(missing_ok=True)
+        # Wipe both the new (URL-hash) path and the legacy (sanitized_name)
+        # path so a fresh download is forced.
+        for name in (
+            f"{video_cache_key(sub)}.mp4",
+            f"{video_cache_key(sub)}_prepared.mp4",
+            f"{sub.sanitized_name}.mp4",
+            f"{sub.sanitized_name}_prepared.mp4",
+        ):
+            (cfg.videos_dir / name).unlink(missing_ok=True)
         _, result = _download_one(sub, cfg)
         existing[tn] = result
         logger.info("Retry video download team %d: success=%s", tn, result.success)

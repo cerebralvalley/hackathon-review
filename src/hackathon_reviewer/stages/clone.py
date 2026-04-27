@@ -73,13 +73,30 @@ LOCK_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", 
 # Clone
 # ---------------------------------------------------------------------------
 
-def _clone_repo(clone_url: str, dest_dir: Path) -> tuple[bool, str | None]:
+def _clone_repo(
+    clone_url: str,
+    dest_dir: Path,
+    legacy_dir: Path | None = None,
+) -> tuple[bool, str | None]:
     import shutil
     import time
 
     dest_dir = dest_dir.resolve()
     if dest_dir.exists() and is_valid_repo(dest_dir):
         return True, None
+
+    # One-time migration: existing caches were keyed by sanitized_name. If
+    # the team has a valid clone at the legacy path, rename it to the new
+    # URL-hash path. Saves users from re-cloning ~all of their data.
+    if legacy_dir is not None and legacy_dir != dest_dir:
+        legacy = legacy_dir.resolve()
+        if legacy.exists() and is_valid_repo(legacy):
+            dest_dir.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                legacy.rename(dest_dir)
+                return True, None
+            except OSError:
+                pass  # fall through to fresh clone
 
     dest_dir.parent.mkdir(parents=True, exist_ok=True)
     last_error: str | None = None
@@ -377,6 +394,8 @@ def _analyze_git_history(repo_dir: Path, cfg: ReviewConfig) -> GitHistory:
 # ---------------------------------------------------------------------------
 
 def _process_one(sub: Submission, cfg: ReviewConfig) -> RepoMetadata:
+    from hackathon_reviewer.utils.cache_key import repo_cache_key
+
     meta = RepoMetadata(
         team_number=sub.team_number,
         team_name=sub.team_name,
@@ -388,8 +407,11 @@ def _process_one(sub: Submission, cfg: ReviewConfig) -> RepoMetadata:
         meta.clone_error = "no_valid_github_url"
         return meta
 
-    repo_dir = cfg.repos_dir / sub.sanitized_name
-    success, error = _clone_repo(sub.github.clone_url, repo_dir)
+    repo_dir = cfg.repos_dir / repo_cache_key(sub)
+    legacy_dir = cfg.repos_dir / sub.sanitized_name
+    success, error = _clone_repo(
+        sub.github.clone_url, repo_dir, legacy_dir=legacy_dir,
+    )
     meta.clone_success = success
     meta.clone_error = error
 

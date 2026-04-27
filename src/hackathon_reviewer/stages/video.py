@@ -31,6 +31,7 @@ def _download_one(
 ) -> tuple[int, VideoDownloadResult]:
     """Download a single video with auto-retry. Returns (team_number, result)."""
     import time
+    from hackathon_reviewer.utils.cache_key import video_cache_key
 
     result = VideoDownloadResult()
     video = sub.video
@@ -39,7 +40,9 @@ def _download_one(
         result.error = f"invalid_video_url: {', '.join(video.issues)}"
         return sub.team_number, result
 
-    video_path = cfg.videos_dir / f"{sub.sanitized_name}.mp4"
+    cache_key = video_cache_key(sub)
+    video_path = cfg.videos_dir / f"{cache_key}.mp4"
+    legacy_path = cfg.videos_dir / f"{sub.sanitized_name}.mp4"
 
     if video_path.exists() and video_path.stat().st_size > 0:
         result.success = True
@@ -47,6 +50,29 @@ def _download_one(
         result.file_path = str(video_path)
         result.duration_seconds = round(get_video_duration(video_path), 1)
         return sub.team_number, result
+
+    # One-time migration from sanitized_name path to URL-hash path
+    if (
+        legacy_path != video_path
+        and legacy_path.exists()
+        and legacy_path.stat().st_size > 0
+    ):
+        try:
+            legacy_path.rename(video_path)
+            legacy_prepared = cfg.videos_dir / f"{sub.sanitized_name}_prepared.mp4"
+            new_prepared = cfg.videos_dir / f"{cache_key}_prepared.mp4"
+            if legacy_prepared.exists() and not new_prepared.exists():
+                try:
+                    legacy_prepared.rename(new_prepared)
+                except OSError:
+                    pass
+            result.success = True
+            result.method = "cached"
+            result.file_path = str(video_path)
+            result.duration_seconds = round(get_video_duration(video_path), 1)
+            return sub.team_number, result
+        except OSError:
+            pass  # fall through to fresh download
 
     video_path.parent.mkdir(parents=True, exist_ok=True)
     url = video.original

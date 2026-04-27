@@ -313,11 +313,20 @@ def _patch_latest_run_submissions(
         if not isinstance(subs, list):
             continue
         sanitized: str | None = None
+        old_github_url: str | None = None
+        old_video_url: str | None = None
         changed = False
         for entry in subs:
             if entry.get("team_number") != team_number:
                 continue
             sanitized = entry.get("sanitized_name") or None
+            # Capture the OLD URLs before overwriting so purge can target
+            # the cache files derived from them (URL-hash based paths).
+            old_github_url = (
+                entry.get("github", {}).get("clone_url")
+                or entry.get("github", {}).get("original")
+            )
+            old_video_url = entry.get("video", {}).get("original")
             if new_github is not None:
                 entry["github"] = new_github.model_dump(mode="json")
                 changed = True
@@ -330,9 +339,13 @@ def _patch_latest_run_submissions(
                 json.dump(subs, f, indent=2, ensure_ascii=False)
 
         if new_video is not None:
-            _purge_team_video(run_data, hackathon_id, team_number, sanitized)
+            _purge_team_video(
+                run_data, hackathon_id, team_number, sanitized, old_video_url,
+            )
         if new_github is not None:
-            _purge_team_clone(run_data, hackathon_id, team_number, sanitized)
+            _purge_team_clone(
+                run_data, hackathon_id, team_number, sanitized, old_github_url,
+            )
 
 
 def _drop_team_from_list(path, team_number: int) -> None:
@@ -370,20 +383,45 @@ def _drop_team_from_dict(path, team_number: int) -> None:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def _purge_team_video(run_data, hackathon_id: str, team_number: int, sanitized: str | None) -> None:
+def _purge_team_video(
+    run_data,
+    hackathon_id: str,
+    team_number: int,
+    sanitized: str | None,
+    old_video_url: str | None = None,
+) -> None:
+    from hackathon_reviewer.utils.cache_key import url_cache_key
+    videos_dir = storage.hackathon_videos_dir(hackathon_id)
+    keys: list[str] = []
     if sanitized:
-        videos_dir = storage.hackathon_videos_dir(hackathon_id)
-        for name in (f"{sanitized}.mp4", f"{sanitized}_prepared.mp4"):
+        keys.append(sanitized)
+    if old_video_url:
+        keys.append(url_cache_key(old_video_url))
+    for k in keys:
+        for name in (f"{k}.mp4", f"{k}_prepared.mp4"):
             (videos_dir / name).unlink(missing_ok=True)
     _drop_team_from_dict(run_data / "video_downloads.json", team_number)
     _drop_team_from_list(run_data / "video_analysis.json", team_number)
 
 
-def _purge_team_clone(run_data, hackathon_id: str, team_number: int, sanitized: str | None) -> None:
+def _purge_team_clone(
+    run_data,
+    hackathon_id: str,
+    team_number: int,
+    sanitized: str | None,
+    old_github_url: str | None = None,
+) -> None:
+    from hackathon_reviewer.utils.cache_key import url_cache_key
+    repos_dir = storage.hackathon_repos_dir(hackathon_id)
+    keys: list[str] = []
     if sanitized:
-        repo_dir = storage.hackathon_repos_dir(hackathon_id) / sanitized
-        if repo_dir.exists():
-            shutil.rmtree(repo_dir, ignore_errors=True)
+        keys.append(sanitized)
+    if old_github_url:
+        keys.append(url_cache_key(old_github_url))
+    for k in keys:
+        d = repos_dir / k
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
     _drop_team_from_list(run_data / "repo_metadata.json", team_number)
     _drop_team_from_list(run_data / "static_analysis.json", team_number)
     _drop_team_from_list(run_data / "code_reviews.json", team_number)
