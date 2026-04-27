@@ -538,8 +538,8 @@ def _process_one(
     if not meta.clone_success:
         return result
 
-    from hackathon_reviewer.utils.cache_key import repo_cache_key
-    repo_dir = cfg.repos_dir / repo_cache_key(sub)
+    from hackathon_reviewer.utils.cache_key import resolve_repo_dir
+    repo_dir = resolve_repo_dir(cfg.repos_dir, sub)
 
     patterns, score, depth = _detect_ai_integration(repo_dir, active_patterns)
     result.integration_patterns = patterns

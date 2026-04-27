@@ -73,8 +73,8 @@ def _review_one(
         result.error = "repo_not_cloned"
         return result
 
-    from hackathon_reviewer.utils.cache_key import repo_cache_key
-    repo_dir = cfg.repos_dir / repo_cache_key(sub)
+    from hackathon_reviewer.utils.cache_key import resolve_repo_dir
+    repo_dir = resolve_repo_dir(cfg.repos_dir, sub)
     source_files = read_key_files(repo_dir, max_chars=cfg.code_review.max_source_chars)
     transcript = _get_transcript(cfg, sub.sanitized_name)
 
