@@ -9,6 +9,82 @@ import { Button } from "@/components/ui/button";
 
 const RETRYABLE_STAGES = new Set(["clone", "video_download", "code_review", "video_analysis"]);
 
+function StageLogs({
+  runId,
+  stage,
+  isRunning,
+}: {
+  runId: string;
+  stage: string;
+  isRunning: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState<string>("");
+  const [exists, setExists] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const preRef = useRef<HTMLPreElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function fetchOnce() {
+      try {
+        setLoading(true);
+        const resp = await api.logs(runId, stage);
+        if (cancelled) return;
+        setContent(resp.content);
+        setExists(resp.exists);
+      } catch {
+        // ignore — keep last value
+      } finally {
+        if (!cancelled) setLoading(false);
+        if (!cancelled && open && isRunning) {
+          timer = setTimeout(fetchOnce, 2000);
+        }
+      }
+    }
+    fetchOnce();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [open, runId, stage, isRunning]);
+
+  // Auto-scroll to bottom on content change while running.
+  useEffect(() => {
+    if (open && isRunning && preRef.current) {
+      preRef.current.scrollTop = preRef.current.scrollHeight;
+    }
+  }, [content, open, isRunning]);
+
+  return (
+    <div className="ml-9 mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+      >
+        <span className="inline-block w-3">{open ? "▾" : "▸"}</span>
+        {open ? "Hide logs" : "Show logs"}
+        {isRunning && open && <span className="text-muted-foreground/60">· live</span>}
+      </button>
+      {open && (
+        <pre
+          ref={preRef}
+          className="mt-1.5 p-2.5 rounded-md bg-muted/50 text-[11px] leading-tight overflow-auto max-h-64 whitespace-pre-wrap"
+        >
+          {exists === false && !loading
+            ? "(no log yet — stage hasn't started or was skipped on resume)"
+            : content || (loading ? "Loading…" : "")}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function StageIcon({ status }: { status: string }) {
   if (status === "completed") {
     return (
@@ -273,6 +349,9 @@ export function PipelineProgress({ run: initialRun, onUpdate }: Props) {
                   pipelineActive={pipelineActive}
                   onRetried={refreshRun}
                 />
+              )}
+              {status !== "pending" && (
+                <StageLogs runId={run.id} stage={stage} isRunning={isRunning} />
               )}
             </div>
           );

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from api.app import models as db_models
 from api.app.services import storage
+from api.app.services.log_capture import capture_stage
 
 logger = logging.getLogger(__name__)
 
@@ -173,13 +174,17 @@ def _run_stages(
     def _progress(stage: str) -> StageProgress:
         return StageProgress(stage, db, run)
 
+    def _log_path(stage: str) -> Path:
+        return storage.run_logs_dir(run.hackathon_id, run.id) / f"{stage}.log"
+
     # Stage 1: Parse
     if _done("parse"):
         logger.info("Skipping parse (already completed)")
         submissions = load_submissions(cfg)
     else:
         _mark("parse", "running")
-        submissions = run_parse(cfg)
+        with capture_stage(_log_path("parse"), "parse"):
+            submissions = run_parse(cfg)
         _mark("parse", "completed")
 
     # Stage 2: Clone
@@ -188,7 +193,8 @@ def _run_stages(
         repo_metadata = load_repo_metadata(cfg)
     else:
         _mark("clone", "running")
-        repo_metadata = run_clone(cfg, submissions, resume=resume, progress=_progress("clone"))
+        with capture_stage(_log_path("clone"), "clone"):
+            repo_metadata = run_clone(cfg, submissions, resume=resume, progress=_progress("clone"))
         _mark("clone", "completed")
 
     # Stage 3: Video download
@@ -197,7 +203,8 @@ def _run_stages(
         video_downloads = load_video_downloads(cfg)
     else:
         _mark("video_download", "running")
-        video_downloads = run_video_download(cfg, submissions, resume=resume, progress=_progress("video_download"))
+        with capture_stage(_log_path("video_download"), "video_download"):
+            video_downloads = run_video_download(cfg, submissions, resume=resume, progress=_progress("video_download"))
         _mark("video_download", "completed")
 
     # Stage 4: Static analysis
@@ -206,7 +213,8 @@ def _run_stages(
         static_results = load_static_analysis(cfg)
     else:
         _mark("static_analysis", "running")
-        static_results = run_static_analysis(cfg, submissions, repo_metadata, progress=_progress("static_analysis"))
+        with capture_stage(_log_path("static_analysis"), "static_analysis"):
+            static_results = run_static_analysis(cfg, submissions, repo_metadata, progress=_progress("static_analysis"))
         _mark("static_analysis", "completed")
 
     # Stage 5: Code review
@@ -215,7 +223,8 @@ def _run_stages(
         code_reviews = load_code_reviews(cfg)
     else:
         _mark("code_review", "running")
-        code_reviews = run_code_review(cfg, submissions, repo_metadata, static_results, resume=resume, progress=_progress("code_review"))
+        with capture_stage(_log_path("code_review"), "code_review"):
+            code_reviews = run_code_review(cfg, submissions, repo_metadata, static_results, resume=resume, progress=_progress("code_review"))
         _mark("code_review", "completed")
 
     # Stage 6: Video analysis
@@ -224,7 +233,8 @@ def _run_stages(
         video_results = load_video_analysis(cfg)
     else:
         _mark("video_analysis", "running")
-        video_results = run_video_analysis(cfg, submissions, video_downloads, resume=resume, progress=_progress("video_analysis"))
+        with capture_stage(_log_path("video_analysis"), "video_analysis"):
+            video_results = run_video_analysis(cfg, submissions, video_downloads, resume=resume, progress=_progress("video_analysis"))
         _mark("video_analysis", "completed")
 
     # Stage 7: Scoring
@@ -233,12 +243,14 @@ def _run_stages(
         scores = load_scores(cfg)
     else:
         _mark("scoring", "running")
-        scores = run_scoring(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, progress=_progress("scoring"))
+        with capture_stage(_log_path("scoring"), "scoring"):
+            scores = run_scoring(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, progress=_progress("scoring"))
         _mark("scoring", "completed")
 
     # Stage 8: Reporting (always re-run to pick up any changes)
     _mark("reporting", "running")
-    run_reporting(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, scores, progress=_progress("reporting"))
+    with capture_stage(_log_path("reporting"), "reporting"):
+        run_reporting(cfg, submissions, repo_metadata, static_results, code_reviews, video_results, scores, progress=_progress("reporting"))
     _mark("reporting", "completed")
 
     _update_run(

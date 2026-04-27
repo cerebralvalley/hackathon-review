@@ -41,3 +41,7 @@ def run_reports_dir(hackathon_id: str, run_id: str) -> Path:
 
 def run_videos_dir(hackathon_id: str, run_id: str) -> Path:
     return run_output_dir(hackathon_id, run_id) / "videos"
+
+
+def run_logs_dir(hackathon_id: str, run_id: str) -> Path:
+    return run_output_dir(hackathon_id, run_id) / "logs"

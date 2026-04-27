@@ -187,6 +187,28 @@ def _retry_in_thread(run_id: str, stage: str, team_numbers: list[int]) -> None:
         db.close()
 
 
+@router.get("/{run_id}/logs/{stage}", summary="Read the captured log for a single stage")
+def get_stage_log(run_id: str, stage: str, db: Session = Depends(get_db)):
+    from api.app.models import PIPELINE_STAGES
+    if stage not in PIPELINE_STAGES:
+        raise HTTPException(400, f"Unknown stage '{stage}'")
+
+    run = db.get(PipelineRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+
+    log_path = storage.run_logs_dir(run.hackathon_id, run.id) / f"{stage}.log"
+    if not log_path.exists():
+        return {"stage": stage, "exists": False, "content": "", "size": 0}
+
+    size = log_path.stat().st_size
+    content = log_path.read_text(encoding="utf-8", errors="replace")
+    # Strip carriage-return cursor overwrites left over from tqdm progress bars.
+    # Each \r segment becomes its own line so the file reads top-to-bottom.
+    content = content.replace("\r", "\n")
+    return {"stage": stage, "exists": True, "content": content, "size": size}
+
+
 @router.get("/{run_id}/videos.zip", summary="Download all downloaded videos as a zip")
 def download_videos_zip(run_id: str, db: Session = Depends(get_db)):
     run = db.get(PipelineRun, run_id)

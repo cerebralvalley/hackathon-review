@@ -97,6 +97,11 @@ export const runs = {
   streamUrl: (runId: string) => `${API_BASE}/api/runs/${runId}/stream`,
 
   videosZipUrl: (runId: string) => `${API_BASE}/api/runs/${runId}/videos.zip`,
+
+  logs: (runId: string, stage: string) =>
+    request<{ stage: string; exists: boolean; content: string; size: number }>(
+      `/api/runs/${runId}/logs/${stage}`
+    ),
 };
 
 // Parse rules
