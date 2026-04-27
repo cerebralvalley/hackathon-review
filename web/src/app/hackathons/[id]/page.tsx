@@ -34,6 +34,14 @@ import {
   TabsTrigger,
   TabsContent,
 } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { PipelineProgress } from "@/components/pipeline-progress";
 
 export default function HackathonDetailPage() {
@@ -45,6 +53,7 @@ export default function HackathonDetailPage() {
   const [triggering, setTriggering] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
+  const [clearCacheOpen, setClearCacheOpen] = useState(false);
 
   const load = useCallback(async () => {
     const [h, r] = await Promise.all([
@@ -98,17 +107,11 @@ export default function HackathonDetailPage() {
   }
 
   async function handleClearCache() {
-    if (
-      !confirm(
-        "Clear all run data (cloned repos, videos, reports, logs) for this hackathon? Config and CSV are preserved. This cannot be undone."
-      )
-    ) {
-      return;
-    }
     setClearingCache(true);
     try {
       const { deleted_runs } = await hackathonsApi.clearCache(id);
       setPipelineRuns([]);
+      setClearCacheOpen(false);
       alert(
         deleted_runs > 0
           ? `Cleared ${deleted_runs} run${deleted_runs === 1 ? "" : "s"} and their cached data.`
@@ -166,15 +169,15 @@ export default function HackathonDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleClearCache}
+            onClick={() => setClearCacheOpen(true)}
             disabled={clearingCache || hasActiveRun}
             title={
               hasActiveRun
                 ? "Cannot clear cache while a run is active"
-                : "Wipe all runs and cached pipeline data; keeps config and CSV"
+                : undefined
             }
           >
-            {clearingCache ? "Clearing..." : "Clear Cache"}
+            Clear Cache
           </Button>
           <Button
             variant="outline"
@@ -187,6 +190,61 @@ export default function HackathonDetailPage() {
           </Button>
         </div>
       </div>
+
+      <Dialog open={clearCacheOpen} onOpenChange={setClearCacheOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Clear cached pipeline data?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the run history and all on-disk artifacts
+              for this hackathon. Cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm">
+            <div>
+              <div className="font-medium text-destructive mb-1">
+                Will be deleted
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                <li>Run history (every PipelineRun row in the DB)</li>
+                <li>Cloned repositories under <code className="text-xs">runs/&lt;run_id&gt;/repos/</code></li>
+                <li>Downloaded videos</li>
+                <li>Per-stage logs and pipeline JSON outputs</li>
+                <li>Generated reports and leaderboards</li>
+              </ul>
+            </div>
+            <div>
+              <div className="font-medium mb-1">Will be kept</div>
+              <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                <li>Hackathon name and configuration (scoring, prompts, bundles)</li>
+                <li>The uploaded CSV file</li>
+              </ul>
+            </div>
+            <p className="text-xs text-muted-foreground pt-1">
+              The next pipeline run will start from scratch — repos will be
+              re-cloned, videos re-downloaded, and code reviewed again.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setClearCacheOpen(false)}
+              disabled={clearingCache}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleClearCache}
+              disabled={clearingCache}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {clearingCache ? "Clearing..." : "Clear Cache"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Results — primary view */}
       <ResultsSection
