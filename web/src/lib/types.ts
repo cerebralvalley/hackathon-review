@@ -72,6 +72,7 @@ export interface Flag {
   flag_type: string;
   description: string;
   severity: "error" | "warning" | "info";
+  dismissed: boolean;
 }
 
 export interface OutreachTeamMember {

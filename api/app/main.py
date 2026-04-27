@@ -23,9 +23,14 @@ def _run_migrations() -> None:
     import sqlalchemy
     with engine.connect() as conn:
         inspector = sqlalchemy.inspect(engine)
-        columns = {c["name"] for c in inspector.get_columns("pipeline_runs")} if inspector.has_table("pipeline_runs") else set()
-        if "stage_detail" not in columns and "pipeline_runs" in {t for t in inspector.get_table_names()}:
+        if not inspector.has_table("pipeline_runs"):
+            return
+        columns = {c["name"] for c in inspector.get_columns("pipeline_runs")}
+        if "stage_detail" not in columns:
             conn.execute(sqlalchemy.text("ALTER TABLE pipeline_runs ADD COLUMN stage_detail JSON NOT NULL DEFAULT '{}'"))
+            conn.commit()
+        if "dismissed_flags" not in columns:
+            conn.execute(sqlalchemy.text("ALTER TABLE pipeline_runs ADD COLUMN dismissed_flags JSON NOT NULL DEFAULT '[]'"))
             conn.commit()
 
 

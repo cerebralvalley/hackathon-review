@@ -100,3 +100,4 @@ class FlagResponse(BaseModel):
     flag_type: str
     description: str
     severity: str
+    dismissed: bool = False

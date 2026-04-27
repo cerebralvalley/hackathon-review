@@ -139,6 +139,18 @@ export const results = {
   flags: (runId: string) =>
     request<Flag[]>(`/api/runs/${runId}/results/flags`),
 
+  dismissFlag: (runId: string, teamNumber: number, flagType: string) =>
+    request<string[]>(`/api/runs/${runId}/results/flags/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ team_number: teamNumber, flag_type: flagType }),
+    }),
+
+  undismissFlag: (runId: string, teamNumber: number, flagType: string) =>
+    request<string[]>(`/api/runs/${runId}/results/flags/undismiss`, {
+      method: "POST",
+      body: JSON.stringify({ team_number: teamNumber, flag_type: flagType }),
+    }),
+
   outreach: (runId: string) =>
     request<OutreachTeam[]>(`/api/runs/${runId}/results/outreach`),
 };

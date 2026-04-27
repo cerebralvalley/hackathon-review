@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Undo2, X } from "lucide-react";
 import {
   hackathons as hackathonsApi,
   results as resultsApi,
@@ -452,10 +452,9 @@ function ResultsSection({
   }
 
   const runId = latestCompletedRun.id;
-  const errorCount = (flags ?? []).filter((f) => f.severity === "error").length;
-  const warningCount = (flags ?? []).filter(
-    (f) => f.severity === "warning"
-  ).length;
+  const activeFlags = (flags ?? []).filter((f) => !f.dismissed);
+  const errorCount = activeFlags.filter((f) => f.severity === "error").length;
+  const warningCount = activeFlags.filter((f) => f.severity === "warning").length;
 
   return (
     <Card>
@@ -497,7 +496,7 @@ function ResultsSection({
               Flags
               {flags && (
                 <span className="ml-1.5 text-xs text-muted-foreground">
-                  {flags.length}
+                  {activeFlags.length}
                 </span>
               )}
             </TabsTrigger>
@@ -566,7 +565,11 @@ function ResultsSection({
                     </span>
                   )}
                 </div>
-                <FlagsList flags={flags} />
+                <FlagsList
+                  flags={flags}
+                  runId={runId}
+                  onChange={(next) => setFlags(next)}
+                />
               </>
             )}
           </TabsContent>
@@ -724,41 +727,130 @@ function OutreachInlineList({ teams }: { teams: OutreachTeam[] }) {
   );
 }
 
-function FlagsList({ flags }: { flags: Flag[] }) {
-  return (
-    <div className="rounded-md border divide-y max-h-[480px] overflow-auto">
-      {flags.map((f, i) => (
-        <div key={i} className="flex items-start gap-3 p-3 text-sm">
-          <Badge
-            variant={
-              f.severity === "error"
-                ? "destructive"
-                : f.severity === "warning"
-                  ? "secondary"
-                  : "outline"
-            }
-            className="mt-0.5 shrink-0"
-          >
-            {f.severity}
-          </Badge>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-xs text-muted-foreground">
-                #{f.team_number}
-              </span>
-              <span className="font-medium truncate">
-                {f.project_name || f.team_name}
-              </span>
-              <Badge variant="outline" className="text-xs">
-                {f.flag_type}
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {f.description}
-            </p>
+function FlagsList({
+  flags,
+  runId,
+  onChange,
+}: {
+  flags: Flag[];
+  runId: string;
+  onChange: (next: Flag[]) => void;
+}) {
+  const [pending, setPending] = useState<Set<string>>(new Set());
+
+  const flagKey = (f: Flag) => `${f.team_number}:${f.flag_type}`;
+
+  async function toggle(f: Flag, dismiss: boolean) {
+    const k = flagKey(f);
+    setPending((p) => new Set([...p, k]));
+    try {
+      if (dismiss) {
+        await resultsApi.dismissFlag(runId, f.team_number, f.flag_type);
+      } else {
+        await resultsApi.undismissFlag(runId, f.team_number, f.flag_type);
+      }
+      onChange(
+        flags.map((x) =>
+          flagKey(x) === k ? { ...x, dismissed: dismiss } : x
+        )
+      );
+    } catch (err) {
+      alert(String(err));
+    } finally {
+      setPending((p) => {
+        const next = new Set(p);
+        next.delete(k);
+        return next;
+      });
+    }
+  }
+
+  const active = flags.filter((f) => !f.dismissed);
+  const dismissed = flags.filter((f) => f.dismissed);
+
+  function row(f: Flag, isDismissed: boolean) {
+    const k = flagKey(f);
+    const busy = pending.has(k);
+    return (
+      <div
+        key={k}
+        className={`flex items-start gap-3 p-3 text-sm ${
+          isDismissed ? "opacity-60" : ""
+        }`}
+      >
+        <Badge
+          variant={
+            f.severity === "error"
+              ? "destructive"
+              : f.severity === "warning"
+                ? "secondary"
+                : "outline"
+          }
+          className="mt-0.5 shrink-0"
+        >
+          {f.severity}
+        </Badge>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs text-muted-foreground">
+              #{f.team_number}
+            </span>
+            <span
+              className={`font-medium truncate ${isDismissed ? "line-through" : ""}`}
+            >
+              {f.project_name || f.team_name}
+            </span>
+            <Badge variant="outline" className="text-xs">
+              {f.flag_type}
+            </Badge>
           </div>
+          <p className="text-xs text-muted-foreground mt-0.5">{f.description}</p>
         </div>
-      ))}
+        <button
+          type="button"
+          onClick={() => toggle(f, !isDismissed)}
+          disabled={busy}
+          className="shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50"
+          title={isDismissed ? "Restore flag" : "Dismiss this flag"}
+        >
+          {isDismissed ? (
+            <>
+              <Undo2 className="size-3.5" />
+              Restore
+            </>
+          ) : (
+            <>
+              <X className="size-3.5" />
+              Dismiss
+            </>
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {active.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center rounded-md border">
+          No active flags. {dismissed.length > 0 && "All current flags are dismissed."}
+        </p>
+      ) : (
+        <div className="rounded-md border divide-y max-h-[480px] overflow-auto">
+          {active.map((f) => row(f, false))}
+        </div>
+      )}
+
+      {dismissed.length > 0 && (
+        <details className="rounded-md border">
+          <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
+            Dismissed ({dismissed.length})
+          </summary>
+          <div className="divide-y border-t">
+            {dismissed.map((f) => row(f, true))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

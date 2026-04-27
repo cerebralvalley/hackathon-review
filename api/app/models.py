@@ -64,5 +64,9 @@ class PipelineRun(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
+    # List of "<team_number>:<flag_type>" keys that the organizer has marked
+    # as not-a-big-deal. The flags endpoint still returns the flag but with
+    # `dismissed: true` so audit history is preserved.
+    dismissed_flags = Column(JSON, nullable=False, default=list)
 
     hackathon = relationship("Hackathon", back_populates="runs")

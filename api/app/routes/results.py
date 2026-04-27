@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.app.database import get_db
@@ -145,6 +146,10 @@ def get_project(run_id: str, team_number: int, db: Session = Depends(get_db)):
 # Flags
 # ---------------------------------------------------------------------------
 
+def _flag_key(team_number: int, flag_type: str) -> str:
+    return f"{team_number}:{flag_type}"
+
+
 @router.get("/flags", response_model=list[FlagResponse])
 def get_flags(run_id: str, db: Session = Depends(get_db)):
     """Recompute flags from stage data (same logic as reporting stage)."""
@@ -158,6 +163,8 @@ def get_flags(run_id: str, db: Session = Depends(get_db)):
     hackathon_cfg = (run.hackathon.config or {}).get("hackathon", {}) if run.hackathon else {}
     max_team_size = hackathon_cfg.get("max_team_size")
     tolerance = int(hackathon_cfg.get("contributor_tolerance", 0) or 0)
+
+    dismissed: set[str] = set(run.dismissed_flags or [])
 
     flags: list[FlagResponse] = []
 
@@ -259,7 +266,42 @@ def get_flags(run_id: str, db: Session = Depends(get_db)):
                         severity="warning",
                     ))
 
+    for f in flags:
+        f.dismissed = _flag_key(f.team_number, f.flag_type) in dismissed
+
     return flags
+
+
+class FlagDismissBody(BaseModel):
+    team_number: int
+    flag_type: str
+
+
+@router.post("/flags/dismiss", response_model=list[str])
+def dismiss_flag(run_id: str, body: FlagDismissBody, db: Session = Depends(get_db)):
+    """Mark a single flag as dismissed for this run. Idempotent."""
+    run = _get_run_or_404(run_id, db)
+    key = _flag_key(body.team_number, body.flag_type)
+    current = list(run.dismissed_flags or [])
+    if key not in current:
+        current.append(key)
+        run.dismissed_flags = current
+        db.commit()
+        db.refresh(run)
+    return current
+
+
+@router.post("/flags/undismiss", response_model=list[str])
+def undismiss_flag(run_id: str, body: FlagDismissBody, db: Session = Depends(get_db)):
+    """Restore a dismissed flag. Idempotent."""
+    run = _get_run_or_404(run_id, db)
+    key = _flag_key(body.team_number, body.flag_type)
+    current = [k for k in (run.dismissed_flags or []) if k != key]
+    if current != list(run.dismissed_flags or []):
+        run.dismissed_flags = current
+        db.commit()
+        db.refresh(run)
+    return current
 
 
 # ---------------------------------------------------------------------------
