@@ -252,12 +252,69 @@ def update_submission_urls(
         f.writelines(prefix_lines)
         f.write(new_text)
 
+    new_github = (
+        classify_github_url(body.github_url) if body.github_url is not None else None
+    )
+    new_video = (
+        classify_video_url(body.video_url) if body.video_url is not None else None
+    )
+
+    # Also patch the latest run's submissions.json in place so the per-team
+    # Retry button (which reads that file) picks up the new URL without
+    # waiting for the user to trigger a fresh pipeline run that re-parses
+    # the CSV from scratch.
+    _patch_latest_run_submissions(
+        db, hackathon_id, team_number, new_github, new_video
+    )
+
     response: dict = {"team_number": team_number}
-    if body.github_url is not None:
-        response["github"] = classify_github_url(body.github_url).model_dump(mode="json")
-    if body.video_url is not None:
-        response["video"] = classify_video_url(body.video_url).model_dump(mode="json")
+    if new_github is not None:
+        response["github"] = new_github.model_dump(mode="json")
+    if new_video is not None:
+        response["video"] = new_video.model_dump(mode="json")
     return response
+
+
+def _patch_latest_run_submissions(
+    db,
+    hackathon_id: str,
+    team_number: int,
+    new_github,
+    new_video,
+) -> None:
+    import json
+    latest = (
+        db.query(PipelineRun)
+        .filter(PipelineRun.hackathon_id == hackathon_id)
+        .order_by(PipelineRun.created_at.desc())
+        .first()
+    )
+    if not latest:
+        return
+    subs_path = storage.run_data_dir(hackathon_id, latest.id) / "submissions.json"
+    if not subs_path.exists():
+        return
+    try:
+        with open(subs_path, "r", encoding="utf-8") as f:
+            subs = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(subs, list):
+        return
+    changed = False
+    for entry in subs:
+        if entry.get("team_number") != team_number:
+            continue
+        if new_github is not None:
+            entry["github"] = new_github.model_dump(mode="json")
+            changed = True
+        if new_video is not None:
+            entry["video"] = new_video.model_dump(mode="json")
+            changed = True
+        break
+    if changed:
+        with open(subs_path, "w", encoding="utf-8") as f:
+            json.dump(subs, f, indent=2, ensure_ascii=False)
 
 
 @router.get("/{hackathon_id}/csv/preview")
