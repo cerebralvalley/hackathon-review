@@ -89,6 +89,7 @@ class LeaderboardEntry(BaseModel):
     integration_depth: str = "none"
     github_url: str = ""
     video_url: str = ""
+    summary: str = ""
 
 
 class ProjectSummary(BaseModel):

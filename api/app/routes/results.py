@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,25 @@ def _video_download_status(data: Path) -> dict[int, dict]:
     return out
 
 
+_SUMMARY_RE = re.compile(r"^\*\*[^*]+:\*\*\s*(.+?)(?=\n\n\*\*|\Z)", re.DOTALL)
+
+
+def _extract_summary(review_text: str | None) -> str:
+    """Pull the first markdown section out of an LLM review_text.
+
+    review_text starts with sections like ``**What it does:** <body>\n\n**Architecture:** ...``.
+    The first section is a self-contained one-paragraph summary of the project,
+    which is exactly what we want to surface in the leaderboard CSV.
+    """
+    if not review_text:
+        return ""
+    m = _SUMMARY_RE.match(review_text)
+    body = m.group(1).strip() if m else review_text.strip()
+    if len(body) > 500:
+        body = body[:497].rstrip() + "..."
+    return body
+
+
 def _get_run_or_404(run_id: str, db: Session) -> PipelineRun:
     run = db.get(PipelineRun, run_id)
     if not run:
@@ -86,6 +106,7 @@ def get_leaderboard(run_id: str, db: Session = Depends(get_db)):
     submissions = {s["team_number"]: s for s in _load_json(data / "submissions.json")}
     repo_meta = {m["team_number"]: m for m in _load_json(data / "repo_metadata.json")}
     static = {s["team_number"]: s for s in _load_json(data / "static_analysis.json")}
+    reviews = {r["team_number"]: r for r in _load_json(data / "code_reviews.json")}
 
     sorted_scores = sorted(scores, key=lambda s: s.get("weighted_total", 0), reverse=True)
 
@@ -95,6 +116,7 @@ def get_leaderboard(run_id: str, db: Session = Depends(get_db)):
         sub = submissions.get(tn, {})
         meta = repo_meta.get(tn, {})
         st = static.get(tn, {})
+        review = reviews.get(tn, {})
 
         criterion_scores = {}
         for crit_name, crit_data in ps.get("scores", {}).items():
@@ -119,6 +141,7 @@ def get_leaderboard(run_id: str, db: Session = Depends(get_db)):
             integration_depth=st.get("integration_depth", "none"),
             github_url=sub.get("github", {}).get("original", ""),
             video_url=sub.get("video", {}).get("original", ""),
+            summary=_extract_summary(review.get("review_text")),
         ))
 
     return entries

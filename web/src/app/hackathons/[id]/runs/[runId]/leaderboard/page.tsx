@@ -29,6 +29,7 @@ function exportCsv(entries: LeaderboardEntry[], criteriaKeys: string[]) {
     "Depth",
     "GitHub",
     "Video",
+    "Summary",
   ];
 
   const rows = entries.map((e) => [
@@ -42,6 +43,7 @@ function exportCsv(entries: LeaderboardEntry[], criteriaKeys: string[]) {
     e.integration_depth,
     e.github_url,
     e.video_url,
+    `"${(e.summary ?? "").replace(/"/g, '""').replace(/\n/g, " ")}"`,
   ]);
 
   const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");

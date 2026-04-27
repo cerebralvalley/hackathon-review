@@ -58,6 +58,7 @@ export interface LeaderboardEntry {
   integration_depth: string;
   github_url: string;
   video_url: string;
+  summary?: string;
 }
 
 export interface ProjectSummary {
