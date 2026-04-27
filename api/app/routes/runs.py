@@ -27,6 +27,21 @@ from api.app.services.retry import retry_items
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
+def _phases_blocking(phase: str) -> set[str]:
+    """Phases of an active run that block starting a new run with `phase`.
+
+    A "full" run touches every stage, so any other phase conflicts with it.
+    Acquisition and Analysis are otherwise independent.
+    """
+    if phase == "full":
+        return {"acquisition", "analysis", "full"}
+    if phase == "acquisition":
+        return {"acquisition", "full"}
+    if phase == "analysis":
+        return {"analysis", "full"}
+    return set()
+
+
 def _run_pipeline_in_thread(run_id: str, resume: bool) -> None:
     """Execute pipeline with its own DB session (runs in a background thread)."""
     db = SessionLocal()
@@ -54,20 +69,27 @@ def create_run(
     if not h.csv_filename:
         raise HTTPException(400, "Upload a CSV before running the pipeline")
 
+    phase = body.phase if body else "full"
+    if phase not in ("acquisition", "analysis", "full"):
+        raise HTTPException(400, f"Invalid phase '{phase}'")
+
+    # Acquisition and Analysis are independent enough to run concurrently.
+    # A "full" run does both, so it conflicts with everything.
+    blocking = _phases_blocking(phase)
     active = (
         db.query(PipelineRun)
         .filter(
             PipelineRun.hackathon_id == hackathon_id,
             PipelineRun.status.in_(["pending", "running"]),
+            PipelineRun.phase.in_(list(blocking)),
         )
         .first()
     )
     if active:
-        raise HTTPException(409, f"A run is already {active.status} (id={active.id})")
-
-    phase = body.phase if body else "full"
-    if phase not in ("acquisition", "analysis", "full"):
-        raise HTTPException(400, f"Invalid phase '{phase}'")
+        raise HTTPException(
+            409,
+            f"A {active.phase} run is already {active.status} (id={active.id})",
+        )
 
     run = PipelineRun(hackathon_id=hackathon_id, phase=phase)
     db.add(run)
@@ -92,16 +114,20 @@ def resume_run(
     if run.status not in ("interrupted", "failed"):
         raise HTTPException(400, f"Run is '{run.status}', can only resume interrupted or failed runs")
 
+    blocking = _phases_blocking(run.phase or "full")
     active = (
         db.query(PipelineRun)
         .filter(
             PipelineRun.hackathon_id == run.hackathon_id,
             PipelineRun.status.in_(["pending", "running"]),
+            PipelineRun.phase.in_(list(blocking)),
         )
         .first()
     )
     if active:
-        raise HTTPException(409, f"Another run is already {active.status}")
+        raise HTTPException(
+            409, f"A {active.phase} run is already {active.status}",
+        )
 
     run.status = "running"
     run.error = None

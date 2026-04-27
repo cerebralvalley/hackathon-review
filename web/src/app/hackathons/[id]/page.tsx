@@ -378,23 +378,18 @@ export default function HackathonDetailPage() {
             </div>
             <Button
               onClick={() => handleRun("acquisition")}
-              disabled={triggering || !hackathon.csv_filename || hasActiveRun}
-              size="sm"
-              title={
-                analysisRunning && !acquisitionRunning
-                  ? "Analysis is running — wait or stop it from the Run history page"
-                  : undefined
+              disabled={
+                triggering || !hackathon.csv_filename || acquisitionRunning
               }
+              size="sm"
             >
               {triggering
                 ? "Starting..."
                 : acquisitionRunning
                   ? "Acquiring..."
-                  : analysisRunning
-                    ? "Analysis running…"
-                    : hasAcquisitionData
-                      ? "Refresh Data"
-                      : "Acquire Data"}
+                  : hasAcquisitionData
+                    ? "Refresh Data"
+                    : "Acquire Data"}
             </Button>
           </div>
         </CardHeader>
@@ -423,25 +418,19 @@ export default function HackathonDetailPage() {
               disabled={
                 triggering ||
                 !hackathon.csv_filename ||
-                hasActiveRun ||
+                analysisRunning ||
                 !hasAcquisitionData
               }
               size="sm"
               title={
-                !hasAcquisitionData
-                  ? "Run Data Acquisition first"
-                  : acquisitionRunning && !analysisRunning
-                    ? "Acquisition is running — wait for it to finish"
-                    : undefined
+                !hasAcquisitionData ? "Run Data Acquisition first" : undefined
               }
             >
               {triggering
                 ? "Starting..."
                 : analysisRunning
                   ? "Analyzing..."
-                  : acquisitionRunning
-                    ? "Acquisition running…"
-                    : "Run Analysis"}
+                  : "Run Analysis"}
             </Button>
           </div>
         </CardHeader>
