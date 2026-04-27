@@ -802,6 +802,7 @@ function DataAcquisitionInline({
               showAll ? outreach : outreach.slice(0, COMPACT_TEAM_LIMIT)
             }
             hackathonId={hackathonId}
+            runId={run.id}
             onSaved={refresh}
           />
           {outreach.length > COMPACT_TEAM_LIMIT && (
@@ -824,13 +825,16 @@ function DataAcquisitionInline({
 function OutreachInlineList({
   teams,
   hackathonId,
+  runId,
   onSaved,
 }: {
   teams: OutreachTeam[];
   hackathonId: string;
+  runId: string;
   onSaved: () => void;
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [retrying, setRetrying] = useState<Set<string>>(new Set());
 
   function toggle(tn: number) {
     setExpanded((prev) => {
@@ -839,6 +843,28 @@ function OutreachInlineList({
       else next.add(tn);
       return next;
     });
+  }
+
+  async function retry(team: OutreachTeam, stage: "clone" | "video_download") {
+    const key = `${team.team_number}:${stage}`;
+    setRetrying((p) => new Set([...p, key]));
+    try {
+      await runsApi.retry(runId, stage, [team.team_number]);
+      // Retry runs in a background thread — wait briefly then refresh.
+      setTimeout(onSaved, 2500);
+    } catch (err) {
+      alert(String(err));
+    } finally {
+      setTimeout(
+        () =>
+          setRetrying((p) => {
+            const next = new Set(p);
+            next.delete(key);
+            return next;
+          }),
+        2500,
+      );
+    }
   }
 
   return (
@@ -945,6 +971,53 @@ function OutreachInlineList({
                     onSaved={onSaved}
                   />
                 </div>
+
+                {/* Retry buttons — only for stages that actually attempted
+                    a fetch (invalid_*_url means we never tried, so retry
+                    won't help; the user needs to fix the URL above). */}
+                {(t.issues.some((i) => i.type === "clone_failed") ||
+                  t.issues.some((i) => i.type === "video_download_failed")) && (
+                  <div className="flex gap-2 pt-1">
+                    {t.issues.some((i) => i.type === "clone_failed") && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[11px] px-2"
+                        disabled={retrying.has(`${t.team_number}:clone`)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          retry(t, "clone");
+                        }}
+                      >
+                        {retrying.has(`${t.team_number}:clone`)
+                          ? "Retrying clone…"
+                          : "↻ Retry clone"}
+                      </Button>
+                    )}
+                    {t.issues.some(
+                      (i) => i.type === "video_download_failed",
+                    ) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[11px] px-2"
+                        disabled={retrying.has(
+                          `${t.team_number}:video_download`,
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          retry(t, "video_download");
+                        }}
+                      >
+                        {retrying.has(`${t.team_number}:video_download`)
+                          ? "Retrying download…"
+                          : "↻ Retry video download"}
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
